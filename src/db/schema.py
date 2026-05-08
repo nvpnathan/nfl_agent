@@ -2,6 +2,7 @@ import sqlite3
 
 def create_schema(db_path: str) -> None:
     conn = sqlite3.connect(db_path)
+    conn.execute("PRAGMA foreign_keys = ON")
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS games (
             game_id TEXT PRIMARY KEY,

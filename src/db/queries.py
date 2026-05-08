@@ -3,6 +3,7 @@ from typing import Optional
 
 def _conn(db_path: str) -> sqlite3.Connection:
     conn = sqlite3.connect(db_path)
+    conn.execute("PRAGMA foreign_keys = ON")
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -113,7 +114,7 @@ def get_conversation_history(db_path: str, session_id: str) -> list[dict]:
         ).fetchall()
     return [dict(r) for r in rows]
 
-def upsert_injury_report(db_path: str, injury: dict) -> None:
+def insert_injury_report(db_path: str, injury: dict) -> None:
     with _conn(db_path) as conn:
         conn.execute("""
             INSERT INTO injury_reports
