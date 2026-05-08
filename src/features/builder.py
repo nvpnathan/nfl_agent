@@ -1,3 +1,4 @@
+import logging
 import pandas as pd
 import numpy as np
 from typing import Optional
@@ -97,7 +98,6 @@ def build_training_dataset(
             features["week"] = int(game["week"])
             rows.append(features)
         except Exception as e:
-            import logging
             logging.warning("Skipping game %s: %s", game.get("game_id", "unknown"), e)
             continue
     return pd.DataFrame(rows)

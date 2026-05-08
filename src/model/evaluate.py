@@ -2,11 +2,10 @@ from sklearn.metrics import brier_score_loss
 
 
 def baseline_accuracy(predictions: list[dict]) -> float:
-    correct = sum(
-        1 for p in predictions
-        if (p["home_win_prob"] >= 0.5) == bool(p["home_win"])
-    )
-    return correct / len(predictions) if predictions else 0.0
+    """Naive baseline: always pick home team."""
+    if not predictions:
+        return 0.0
+    return sum(1 for p in predictions if bool(p["home_win"])) / len(predictions)
 
 
 def compute_week_metrics(predictions: list[dict]) -> dict:
@@ -30,7 +29,7 @@ def compute_week_metrics(predictions: list[dict]) -> dict:
             p.get("win_probability", p["home_win_prob"]) * p["confidence_points"] for p in predictions
         ),
         "brier_score": brier_score_loss(labels, probs),
-        "baseline_accuracy": baseline_accuracy(predictions),
+        "baseline_accuracy": sum(1 for p in predictions if bool(p["home_win"])) / n,
     }
 
 
@@ -63,8 +62,9 @@ def run_season_backtest(
             predictions = predict_week(model_path, game_inputs)
             assignments = assign_confidence_points(predictions, point_range)
             assign_by_id = {a["game_id"]: a["confidence_points"] for a in assignments}
-            assert set(assign_by_id) == {p["game_id"] for p in predictions}, \
-                f"Optimizer assignments don't match predictions: {set(p['game_id'] for p in predictions) - set(assign_by_id)}"
+            if set(assign_by_id) != {p["game_id"] for p in predictions}:
+                missing = {p["game_id"] for p in predictions} - set(assign_by_id)
+                raise ValueError(f"Optimizer missing assignments for game_ids: {missing}")
             for pred in predictions:
                 pred["confidence_points"] = assign_by_id[pred["game_id"]]
                 gid = pred["game_id"]

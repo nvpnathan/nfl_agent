@@ -65,11 +65,11 @@ from src.model.evaluate import compute_week_metrics, baseline_accuracy
 def test_baseline_accuracy_always_picks_favorite():
     predictions = [
         {"home_win_prob": 0.70, "home_win": 1},
-        {"home_win_prob": 0.40, "home_win": 1},  # underdog wins
-        {"home_win_prob": 0.65, "home_win": 1},
+        {"home_win_prob": 0.40, "home_win": 1},  # home team still wins
+        {"home_win_prob": 0.65, "home_win": 0},  # away team wins
     ]
     acc = baseline_accuracy(predictions)
-    assert abs(acc - 2/3) < 0.01
+    assert abs(acc - 2/3) < 0.01  # 2 out of 3 home teams won
 
 def test_compute_week_metrics():
     predictions = [
