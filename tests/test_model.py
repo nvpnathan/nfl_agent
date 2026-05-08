@@ -39,3 +39,23 @@ def test_predict_favors_higher_odds_team(tmp_path):
     high_odds = {**base, "odds_home_win_prob": 0.80}
     low_odds = {**base, "odds_home_win_prob": 0.40}
     assert predict_game_prob(model_path, high_odds) > predict_game_prob(model_path, low_odds)
+
+def test_predict_week_returns_required_keys(tmp_path):
+    df = make_fake_training_data()
+    model_path = str(tmp_path / "model.joblib")
+    train_model(df, model_path)
+    games = [{
+        "game_id": "test_g1",
+        "home_team": "KC",
+        "away_team": "BAL",
+        "features": {col: 0.5 for col in FEATURE_COLS},
+    }]
+    from src.model.predict import predict_week
+    results = predict_week(model_path, games)
+    assert len(results) == 1
+    r = results[0]
+    assert "home_win_prob" in r
+    assert "predicted_winner" in r
+    assert "win_probability" in r
+    assert 0.0 <= r["home_win_prob"] <= 1.0
+    assert r["predicted_winner"] in ("KC", "BAL")

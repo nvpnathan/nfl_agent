@@ -10,6 +10,7 @@ MODEL_VERSION = "xgb_v1"
 def train_model(df: pd.DataFrame, model_path: str) -> dict:
     X = df[FEATURE_COLS].fillna(df[FEATURE_COLS].median())
     y = df["home_win"]
+    medians = df[FEATURE_COLS].median().to_dict()
 
     base = XGBClassifier(
         n_estimators=300,
@@ -25,7 +26,7 @@ def train_model(df: pd.DataFrame, model_path: str) -> dict:
     model.fit(X, y)
 
     cv_scores = cross_val_score(base, X, y, cv=5, scoring="accuracy")
-    joblib.dump({"model": model, "version": MODEL_VERSION, "features": FEATURE_COLS}, model_path)
+    joblib.dump({"model": model, "version": MODEL_VERSION, "features": FEATURE_COLS, "medians": medians}, model_path)
 
     return {
         "model_version": MODEL_VERSION,
