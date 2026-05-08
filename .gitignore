@@ -1,0 +1,12 @@
+.worktrees/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+.venv/
+data/nfl_pool.db
+data/model.joblib
