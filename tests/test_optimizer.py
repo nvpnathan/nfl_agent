@@ -40,3 +40,12 @@ def test_get_point_range_regular_season():
 
 def test_get_point_range_playoff():
     assert get_point_range(n_games=6, game_type="wildcard") == (1, 6)
+
+def test_underfull_week_assigns_one_through_n():
+    games = [
+        {"game_id": f"g{i}", "predicted_winner": "X", "win_probability": 0.5 + i*0.01}
+        for i in range(14)
+    ]
+    result = assign_confidence_points(games, (1, 16))
+    points = sorted(r["confidence_points"] for r in result)
+    assert points == list(range(1, 15))  # 1..14, not 3..16
