@@ -59,7 +59,8 @@ def get_rest_days(schedules: pd.DataFrame, team: str,
     mask = (
         ((schedules["home_team"] == team) | (schedules["away_team"] == team)) &
         (schedules["season"] == season) &
-        (schedules["week"] < week)
+        (schedules["week"] < week) &
+        (schedules["home_score"].notna())
     )
     prior = schedules[mask].tail(1)
     if prior.empty:

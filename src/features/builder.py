@@ -2,7 +2,6 @@ import pandas as pd
 import numpy as np
 from typing import Optional
 from src.data.historical import load_games, load_schedules, get_team_recent_form, get_rest_days
-from src.data.weather import estimate_weather_impact
 
 FEATURE_COLS = [
     "odds_home_win_prob", "home_rest_days", "away_rest_days", "rest_advantage",
@@ -52,7 +51,6 @@ def build_features_for_game(
     home_sos = _get_sos(schedules, home, season, week)
     away_sos = _get_sos(schedules, away, season, week)
 
-    is_outdoor = weather.get("is_outdoor", True) if weather else True
     temperature = weather.get("temperature") if weather else None
     wind_speed = weather.get("wind_speed") if weather else None
 
@@ -98,6 +96,8 @@ def build_training_dataset(
             features["season"] = int(game["season"])
             features["week"] = int(game["week"])
             rows.append(features)
-        except Exception:
+        except Exception as e:
+            import logging
+            logging.warning("Skipping game %s: %s", game.get("game_id", "unknown"), e)
             continue
     return pd.DataFrame(rows)
