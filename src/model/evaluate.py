@@ -27,7 +27,7 @@ def compute_week_metrics(predictions: list[dict]) -> dict:
         "accuracy": correct / n,
         "actual_points": actual_pts,
         "expected_points": sum(
-            p["home_win_prob"] * p["confidence_points"] for p in predictions
+            p.get("win_probability", p["home_win_prob"]) * p["confidence_points"] for p in predictions
         ),
         "brier_score": brier_score_loss(labels, probs),
         "baseline_accuracy": baseline_accuracy(predictions),
@@ -63,11 +63,15 @@ def run_season_backtest(
             predictions = predict_week(model_path, game_inputs)
             assignments = assign_confidence_points(predictions, point_range)
             assign_by_id = {a["game_id"]: a["confidence_points"] for a in assignments}
+            assert set(assign_by_id) == {p["game_id"] for p in predictions}, \
+                f"Optimizer assignments don't match predictions: {set(p['game_id'] for p in predictions) - set(assign_by_id)}"
             for pred in predictions:
-                pred["confidence_points"] = assign_by_id.get(pred["game_id"], 0)
+                pred["confidence_points"] = assign_by_id[pred["game_id"]]
                 gid = pred["game_id"]
                 home_win_rows = week_games[week_games["game_id"] == gid]["home_win"]
-                pred["home_win"] = int(home_win_rows.values[0]) if len(home_win_rows) else 0
+                if len(home_win_rows) == 0:
+                    raise ValueError(f"game_id {gid} not found in week_games")
+                pred["home_win"] = int(home_win_rows.values[0])
             metrics = compute_week_metrics(predictions)
             metrics["season"] = season
             metrics["week"] = week
