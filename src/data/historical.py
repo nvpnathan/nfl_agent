@@ -18,6 +18,8 @@ def load_schedules(seasons: list[int]) -> pd.DataFrame:
 def load_games(seasons: list[int]) -> pd.DataFrame:
     df = load_schedules(seasons)
     completed = df[df["home_score"].notna()].copy()
+    tied = completed["home_score"] == completed["away_score"]
+    completed = completed[~tied].copy()
     completed["home_win"] = (completed["home_score"] > completed["away_score"]).astype(int)
     return completed
 
@@ -63,6 +65,8 @@ def get_rest_days(schedules: pd.DataFrame, team: str,
     if prior.empty:
         return 14  # assume bye week rest at start of season
     last_date = pd.to_datetime(prior["gameday"].values[0])
+    if pd.isna(last_date):
+        return 7
     current = schedules[
         (((schedules["home_team"] == team) | (schedules["away_team"] == team)) &
          (schedules["season"] == season) & (schedules["week"] == week))
@@ -70,4 +74,6 @@ def get_rest_days(schedules: pd.DataFrame, team: str,
     if current.empty:
         return 7
     game_date = pd.to_datetime(current["gameday"].values[0])
+    if pd.isna(game_date):
+        return 7
     return max(1, (game_date - last_date).days)

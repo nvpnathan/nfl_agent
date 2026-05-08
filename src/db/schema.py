@@ -3,7 +3,8 @@ import sqlite3
 def create_schema(db_path: str) -> None:
     conn = sqlite3.connect(db_path)
     conn.execute("PRAGMA foreign_keys = ON")
-    conn.executescript("""
+    try:
+        conn.executescript("""
         CREATE TABLE IF NOT EXISTS games (
             game_id TEXT PRIMARY KEY,
             season INTEGER NOT NULL,
@@ -105,6 +106,7 @@ def create_schema(db_path: str) -> None:
             picked_team TEXT NOT NULL,
             confidence_points INTEGER NOT NULL
         );
-    """)
-    conn.commit()
-    conn.close()
+        """)
+        conn.commit()
+    finally:
+        conn.close()
