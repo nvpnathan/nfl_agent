@@ -79,3 +79,30 @@ def test_parse_odds_response_removes_vig():
     # Probabilities must sum to ~1.0 after vig removal
     total = result[0]["home_win_prob"] + result[0]["away_win_prob"]
     assert abs(total - 1.0) < 0.001
+
+from src.data.injuries import parse_sleeper_injuries, is_qb_out
+from src.data.weather import estimate_weather_impact
+
+def test_is_qb_out_detects_out_status():
+    injuries = [
+        {"player_name": "Patrick Mahomes", "position": "QB",
+         "injury_status": "Out", "is_qb": 1},
+        {"player_name": "Travis Kelce", "position": "TE",
+         "injury_status": "Questionable", "is_qb": 0},
+    ]
+    assert is_qb_out(injuries) is True
+
+def test_is_qb_out_false_when_qb_healthy():
+    injuries = [
+        {"player_name": "Travis Kelce", "position": "TE",
+         "injury_status": "Out", "is_qb": 0},
+    ]
+    assert is_qb_out(injuries) is False
+
+def test_weather_impact_indoor_is_zero():
+    impact = estimate_weather_impact(is_outdoor=False, temperature=32, wind_speed=20)
+    assert impact == 0.0
+
+def test_weather_impact_cold_wind_negative():
+    impact = estimate_weather_impact(is_outdoor=True, temperature=20, wind_speed=25)
+    assert impact < 0
