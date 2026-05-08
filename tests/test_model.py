@@ -59,3 +59,24 @@ def test_predict_week_returns_required_keys(tmp_path):
     assert "win_probability" in r
     assert 0.0 <= r["home_win_prob"] <= 1.0
     assert r["predicted_winner"] in ("KC", "BAL")
+
+from src.model.evaluate import compute_week_metrics, baseline_accuracy
+
+def test_baseline_accuracy_always_picks_favorite():
+    predictions = [
+        {"home_win_prob": 0.70, "home_win": 1},
+        {"home_win_prob": 0.40, "home_win": 1},  # underdog wins
+        {"home_win_prob": 0.65, "home_win": 1},
+    ]
+    acc = baseline_accuracy(predictions)
+    assert abs(acc - 2/3) < 0.01
+
+def test_compute_week_metrics():
+    predictions = [
+        {"home_win_prob": 0.70, "home_win": 1, "confidence_points": 3},
+        {"home_win_prob": 0.60, "home_win": 0, "confidence_points": 2},
+        {"home_win_prob": 0.55, "home_win": 1, "confidence_points": 1},
+    ]
+    metrics = compute_week_metrics(predictions)
+    assert metrics["actual_points"] == 4   # 3 + 0 + 1
+    assert metrics["accuracy"] == pytest.approx(2/3)
