@@ -2,7 +2,7 @@ import requests
 import yaml
 from typing import Optional
 
-OUT_STATUSES = {"Out", "Doubtful"}
+OUT_STATUSES = {"Out", "Doubtful", "IR", "PUP-R"}
 QB_POSITIONS = {"QB"}
 
 def fetch_sleeper_injuries(season: int, week: int,
@@ -11,6 +11,7 @@ def fetch_sleeper_injuries(season: int, week: int,
         config = yaml.safe_load(f)
     base = config["sleeper"]["base_url"]
     url = f"{base}/players/nfl"
+    # /players/nfl is a current-state snapshot; season/week used for DB tagging only
     resp = requests.get(url, timeout=15)
     resp.raise_for_status()
     players = resp.json()
