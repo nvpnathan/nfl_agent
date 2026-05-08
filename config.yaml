@@ -1,0 +1,26 @@
+odds_api:
+  key: "YOUR_ODDS_API_KEY"
+  sport: "americanfootball_nfl"
+  regions: "us"
+  markets: "h2h"
+
+sleeper:
+  base_url: "https://api.sleeper.app/v1"
+
+llm:
+  provider: "ollama"        # "ollama" or "claude"
+  ollama_model: "llama3.3:70b"
+  claude_model: "claude-sonnet-4-6"
+
+db:
+  path: "data/nfl_pool.db"
+
+model:
+  path: "data/model.joblib"
+  train_seasons: [2018, 2019, 2020, 2021, 2022, 2023]
+  val_seasons: [2024, 2025]
+  uncertainty_threshold: 0.03
+
+pool:
+  regular_season_point_range: [1, 16]
+  playoff_point_range: [8, 16]
