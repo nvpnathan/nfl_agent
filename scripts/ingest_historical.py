@@ -29,7 +29,7 @@ def main():
             "away_team": row["away_team"],
             "game_date": str(row[game_date_col]),
             "stadium": row.get("stadium"),
-            "is_outdoor": int(not str(row.get("roof", "outdoors")).startswith("dome")),
+            "is_outdoor": int(str(row.get("roof", "outdoors")) in ("outdoors", "open")),
             "home_score": int(row["home_score"]) if pd.notna(row["home_score"]) else None,
             "away_score": int(row["away_score"]) if pd.notna(row["away_score"]) else None,
             "home_win": int(row["home_win"]),

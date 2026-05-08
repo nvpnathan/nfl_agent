@@ -15,7 +15,7 @@ OUTDOOR_STADIUM_COORDS = {
     "NO": (29.951, -90.081), "ATL": (33.755, -84.401),
 }
 
-INDOOR_TEAMS = {"NO", "ATL", "MIN", "DET", "IND", "HOU", "LAR", "LAC", "ARI", "LV", "DAL"}
+INDOOR_TEAMS = {"NO", "ATL", "MIN", "DET", "IND", "HOU", "LA", "LAR", "LAC", "ARI", "LV", "DAL"}
 
 def get_stadium_weather(home_team: str, game_date: str) -> Optional[dict]:
     if home_team in INDOOR_TEAMS:
