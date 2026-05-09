@@ -82,7 +82,7 @@ def test_baseline_accuracy_always_picks_favorite():
         {"home_win_prob": 0.65, "home_win": 0},
     ]
     acc = baseline_accuracy(predictions)
-    assert abs(acc - 2 / 3) < 0.01
+    assert abs(acc - 1 / 3) < 0.01
 
 
 def test_compute_week_metrics():

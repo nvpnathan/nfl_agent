@@ -4,7 +4,7 @@ from sklearn.metrics import brier_score_loss
 def baseline_accuracy(predictions: list[dict]) -> float:
     if not predictions:
         return 0.0
-    return sum(1 for p in predictions if bool(p["home_win"])) / len(predictions)
+    return sum(1 for p in predictions if (p["home_win_prob"] >= 0.5) == bool(p["home_win"])) / len(predictions)
 
 
 def compute_week_metrics(predictions: list[dict]) -> dict:
