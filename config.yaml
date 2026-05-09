@@ -4,8 +4,8 @@ odds_api:
   regions: "us"
   markets: "h2h"
 
-sleeper:
-  base_url: "https://api.sleeper.app/v1"
+espn:
+  base_url: "https://site.api.espn.com/apis/site/v2/sports/football/nfl"
 
 llm:
   provider: "ollama"        # "ollama" or "claude"
