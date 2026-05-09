@@ -51,7 +51,7 @@ def main() -> None:
         rows = conn.execute("""
             SELECT g.espn_id FROM games g
             LEFT JOIN game_odds o USING(espn_id)
-            WHERE g.season=2024 AND g.home_win IS NOT NULL AND o.espn_id IS NULL
+            WHERE g.season >= 2024 AND g.home_win IS NOT NULL AND o.espn_id IS NULL
             ORDER BY g.game_date
         """).fetchall()
     espn_ids = [r[0] for r in rows]
