@@ -1,4 +1,5 @@
 import httpx
+import requests
 
 ESPN_BASE = "https://site.api.espn.com/apis/site/v2/sports/football/nfl"
 
@@ -198,3 +199,33 @@ def parse_depth_chart_qbs(depth_chart: dict, team_abbr: str, season: int, week: 
                 "rank": int(athlete_entry.get("rank", 99)),
             })
     return entries
+
+
+def fetch_game_odds(espn_id: str) -> dict | None:
+    """Fetch Bet365 pre-match spread and total from ESPN. Returns None if unavailable."""
+    url = (
+        f"https://sports.core.api.espn.com/v2/sports/football/leagues/nfl"
+        f"/events/{espn_id}/competitions/{espn_id}/odds"
+    )
+    resp = requests.get(url, timeout=10)
+    if not resp.ok:
+        return None
+    data = resp.json()
+    bet365 = next(
+        (i for i in data.get("items", []) if i.get("provider", {}).get("id") == "2000"),
+        None,
+    )
+    if not bet365:
+        return None
+    team_odds = bet365.get("bettingOdds", {}).get("teamOdds", {})
+    spread = team_odds.get("preMatchSpreadHandicapHome", {}).get("value")
+    total = team_odds.get("preMatchTotalHandicap", {}).get("value")
+    if spread is None or total is None:
+        return None
+    return {
+        "espn_id": espn_id,
+        "home_spread": float(spread),
+        "game_total": float(total),
+        "home_moneyline": team_odds.get("preMatchMoneyLineHome", {}).get("value"),
+        "away_moneyline": team_odds.get("preMatchMoneyLineAway", {}).get("value"),
+    }
