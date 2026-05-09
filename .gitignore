@@ -10,5 +10,4 @@ build/
 .venv/
 data/nfl_pool.db
 data/model.joblib
-
-nfl_week_9.json
+.env
