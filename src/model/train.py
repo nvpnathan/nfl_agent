@@ -22,7 +22,7 @@ def train_model(df: pd.DataFrame, model_path: str) -> dict:
         random_state=42,
         n_jobs=-1,
     )
-    model = CalibratedClassifierCV(base, cv=5, method="isotonic")
+    model = CalibratedClassifierCV(base, cv=5, method="sigmoid")
     model.fit(X, y)
 
     cv_scores = cross_val_score(base, X, y, cv=5, scoring="accuracy")

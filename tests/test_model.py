@@ -11,7 +11,9 @@ from src.features.builder import FEATURE_COLS
 def make_fake_training_data(n=200) -> pd.DataFrame:
     np.random.seed(42)
     df = pd.DataFrame({col: np.random.random(n) for col in FEATURE_COLS})
-    df["home_win"] = (df["odds_home_win_prob"] + np.random.normal(0, 0.1, n) > 0.5).astype(int)
+    df["home_spread"] = np.random.uniform(-14, 14, n)
+    df["game_total"] = np.random.uniform(38, 58, n)
+    df["home_win"] = (-df["home_spread"] + np.random.normal(0, 3, n) > 0).astype(int)
     return df
 
 
@@ -28,32 +30,37 @@ def test_predict_game_prob_returns_valid_probability(tmp_path):
     model_path = str(tmp_path / "model.joblib")
     train_model(df, model_path)
     features = {col: 0.5 for col in FEATURE_COLS}
-    features["odds_home_win_prob"] = 0.65
+    features["home_spread"] = -3.0
+    features["game_total"] = 45.5
     prob = predict_game_prob(model_path, features)
     assert 0.0 <= prob <= 1.0
 
 
-def test_predict_favors_higher_odds_team(tmp_path):
+def test_predict_favors_spread_favorite(tmp_path):
     df = make_fake_training_data(n=500)
     model_path = str(tmp_path / "model.joblib")
     train_model(df, model_path)
     base = {col: 0.5 for col in FEATURE_COLS}
     base["home_qb_active"] = 1
     base["away_qb_active"] = 1
-    high_odds = {**base, "odds_home_win_prob": 0.80}
-    low_odds = {**base, "odds_home_win_prob": 0.40}
-    assert predict_game_prob(model_path, high_odds) > predict_game_prob(model_path, low_odds)
+    base["game_total"] = 45.5
+    heavy_favorite = {**base, "home_spread": -10.0}
+    heavy_underdog = {**base, "home_spread": 10.0}
+    assert predict_game_prob(model_path, heavy_favorite) > predict_game_prob(model_path, heavy_underdog)
 
 
 def test_predict_week_returns_required_keys(tmp_path):
     df = make_fake_training_data()
     model_path = str(tmp_path / "model.joblib")
     train_model(df, model_path)
+    features = {col: 0.5 for col in FEATURE_COLS}
+    features["home_spread"] = -3.0
+    features["game_total"] = 45.5
     games = [{
         "espn_id": "401220225",
         "home_team": "KC",
         "away_team": "BAL",
-        "features": {col: 0.5 for col in FEATURE_COLS},
+        "features": features,
     }]
     results = predict_week(model_path, games)
     assert len(results) == 1
