@@ -1,5 +1,4 @@
 import httpx
-import requests
 
 ESPN_BASE = "https://site.api.espn.com/apis/site/v2/sports/football/nfl"
 
@@ -207,8 +206,9 @@ def fetch_game_odds(espn_id: str) -> dict | None:
         f"https://sports.core.api.espn.com/v2/sports/football/leagues/nfl"
         f"/events/{espn_id}/competitions/{espn_id}/odds"
     )
-    resp = requests.get(url, timeout=10)
-    if not resp.ok:
+    with httpx.Client(timeout=10) as client:
+        resp = client.get(url)
+    if resp.status_code != 200:
         return None
     data = resp.json()
     bet365 = next(
@@ -222,10 +222,15 @@ def fetch_game_odds(espn_id: str) -> dict | None:
     total = team_odds.get("preMatchTotalHandicap", {}).get("value")
     if spread is None or total is None:
         return None
+    try:
+        home_spread = float(spread)
+        game_total = float(total)
+    except (ValueError, TypeError):
+        return None
     return {
         "espn_id": espn_id,
-        "home_spread": float(spread),
-        "game_total": float(total),
+        "home_spread": home_spread,
+        "game_total": game_total,
         "home_moneyline": team_odds.get("preMatchMoneyLineHome", {}).get("value"),
         "away_moneyline": team_odds.get("preMatchMoneyLineAway", {}).get("value"),
     }
