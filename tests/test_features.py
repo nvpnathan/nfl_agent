@@ -44,10 +44,13 @@ def db_with_history(tmp_path):
 
 
 def test_feature_cols_count():
-    assert len(FEATURE_COLS) == 27
+    assert len(FEATURE_COLS) == 28
 
 
 def test_feature_cols_has_new_espn_features():
+    assert "home_spread" in FEATURE_COLS
+    assert "game_total" in FEATURE_COLS
+    assert "odds_home_win_prob" not in FEATURE_COLS
     assert "home_turnover_diff_4wk" in FEATURE_COLS
     assert "away_turnover_diff_4wk" in FEATURE_COLS
     assert "home_total_yards_4wk" in FEATURE_COLS
@@ -73,7 +76,7 @@ def test_build_features_has_all_keys(db_with_history):
         "game_type": "regular", "home_team": "BAL", "away_team": "PIT",
         "is_indoor": 0, "is_neutral": 0,
     }
-    features = build_features_for_game(game, db_with_history, odds_home_win_prob=0.60)
+    features = build_features_for_game(game, db_with_history, home_spread=-3.0, game_total=45.5)
     for col in FEATURE_COLS:
         assert col in features, f"Missing feature: {col}"
 
@@ -84,7 +87,7 @@ def test_build_features_box_stats_populated(db_with_history):
         "game_type": "regular", "home_team": "BAL", "away_team": "PIT",
         "is_indoor": 0, "is_neutral": 0,
     }
-    features = build_features_for_game(game, db_with_history, odds_home_win_prob=0.60)
+    features = build_features_for_game(game, db_with_history, home_spread=-3.0, game_total=45.5)
     # BAL had 350 yards in week 1 and 250 in week 2 → avg 300
     assert features["home_total_yards_4wk"] == pytest.approx(300.0)
     # BAL had 1 turnover week 1, 3 turnovers week 2 → avg -2 (negated for "fewer is better")
@@ -98,11 +101,22 @@ def test_build_features_indoor_zeroes_weather(db_with_history):
         "is_indoor": 1, "is_neutral": 0,
     }
     features = build_features_for_game(
-        game, db_with_history, odds_home_win_prob=0.60,
+        game, db_with_history, home_spread=-3.0, game_total=45.5,
         weather={"temperature": 20.0, "wind_speed": 30.0},
     )
     assert features["temperature"] == 68.0
     assert features["wind_speed"] == 0.0
+
+
+def test_build_features_spread_and_total_in_output(db_with_history):
+    game = {
+        "espn_id": "g3", "season": 2024, "week": 3,
+        "game_type": "regular", "home_team": "BAL", "away_team": "PIT",
+        "is_indoor": 0, "is_neutral": 0,
+    }
+    features = build_features_for_game(game, db_with_history, home_spread=-6.5, game_total=44.0)
+    assert features["home_spread"] == -6.5
+    assert features["game_total"] == 44.0
 
 
 def test_build_features_qb_active_defaults_to_1(db_with_history):
@@ -111,7 +125,7 @@ def test_build_features_qb_active_defaults_to_1(db_with_history):
         "game_type": "regular", "home_team": "BAL", "away_team": "PIT",
         "is_indoor": 0, "is_neutral": 0,
     }
-    features = build_features_for_game(game, db_with_history, odds_home_win_prob=0.60)
+    features = build_features_for_game(game, db_with_history, home_spread=-3.0, game_total=45.5)
     assert features["home_qb_active"] == 1
     assert features["away_qb_active"] == 1
 
@@ -127,13 +141,18 @@ def test_build_features_qb_out_sets_inactive(db_with_history):
         "game_type": "regular", "home_team": "BAL", "away_team": "PIT",
         "is_indoor": 0, "is_neutral": 0,
     }
-    features = build_features_for_game(game, db_with_history, odds_home_win_prob=0.60)
+    features = build_features_for_game(game, db_with_history, home_spread=-3.0, game_total=45.5)
     assert features["home_qb_active"] == 0
 
 
 def test_build_training_dataset_returns_dataframe(db_with_history):
+    from src.db.queries import insert_game_odds
+    insert_game_odds(db_with_history, {"espn_id": "g1", "home_spread": -3.0, "game_total": 45.5,
+                                        "home_moneyline": "4/6", "away_moneyline": "5/4"})
+    insert_game_odds(db_with_history, {"espn_id": "g2", "home_spread": 2.5, "game_total": 47.0,
+                                        "home_moneyline": "5/4", "away_moneyline": "4/6"})
     df = build_training_dataset(db_with_history, seasons=[2024])
-    assert len(df) == 2  # 2 completed games
+    assert len(df) == 2  # 2 completed games with odds
     assert "home_win" in df.columns
     assert set(FEATURE_COLS).issubset(set(df.columns))
     assert df["home_win"].isin([0, 1]).all()

@@ -4,7 +4,7 @@ from typing import Optional
 from src.db.queries import get_team_box_stats, get_injuries_for_week
 
 FEATURE_COLS = [
-    "odds_home_win_prob",
+    "home_spread", "game_total",
     "home_rest_days", "away_rest_days", "rest_advantage",
     "home_recent_winpct", "away_recent_winpct",
     "home_home_winpct", "away_road_winpct",
@@ -61,7 +61,8 @@ def _injury_features(db_path: str, team: str, season: int, week: int) -> dict:
 def build_features_for_game(
     game: dict,
     db_path: str,
-    odds_home_win_prob: float,
+    home_spread: float,
+    game_total: float,
     weather: Optional[dict] = None,
 ) -> dict:
     from src.data.historical import (
@@ -95,7 +96,8 @@ def build_features_for_game(
         wind_speed = weather.get("wind_speed", 5.0) if weather else 5.0
 
     return {
-        "odds_home_win_prob": odds_home_win_prob,
+        "home_spread": home_spread,
+        "game_total": game_total,
         "home_rest_days": home_rest,
         "away_rest_days": away_rest,
         "rest_advantage": home_rest - away_rest,
@@ -128,16 +130,22 @@ def build_features_for_game(
 def build_training_dataset(
     db_path: str,
     seasons: list[int],
-    odds_by_game: Optional[dict] = None,
 ) -> pd.DataFrame:
     from src.data.historical import load_games
+    from src.db.queries import get_game_odds
     games = load_games(db_path, seasons)
     rows = []
     for _, game in games.iterrows():
         g = dict(game)
-        odds_prob = (odds_by_game or {}).get(g["espn_id"], 0.55)
+        odds = get_game_odds(db_path, g["espn_id"])
+        if odds is None:
+            continue
         try:
-            features = build_features_for_game(g, db_path, odds_prob)
+            features = build_features_for_game(
+                g, db_path,
+                home_spread=odds["home_spread"],
+                game_total=odds["game_total"],
+            )
             features["home_win"] = int(g["home_win"])
             features["espn_id"] = g["espn_id"]
             features["season"] = int(g["season"])
