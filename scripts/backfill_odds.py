@@ -20,10 +20,10 @@ def main() -> None:
 
     with sqlite3.connect(db_path) as conn:
         rows = conn.execute(
-            "SELECT espn_id FROM games WHERE season >= 2019 AND home_win IS NOT NULL ORDER BY season, week"
+            "SELECT espn_id FROM games WHERE season >= 2018 AND home_win IS NOT NULL ORDER BY season, week"
         ).fetchall()
     espn_ids = [r[0] for r in rows]
-    print(f"Found {len(espn_ids)} completed games from 2019+")
+    print(f"Found {len(espn_ids)} completed games from 2018+")
 
     already, fetched, missing = 0, 0, 0
     for espn_id in espn_ids:
