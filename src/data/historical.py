@@ -2,7 +2,7 @@
 import sqlite3
 from typing import Optional
 import pandas as pd
-from src.db.queries import get_team_results, get_team_box_stats
+from src.db.queries import get_team_results
 
 PLAYOFF_TYPES = {"wildcard", "divisional", "conference", "superbowl"}
 
