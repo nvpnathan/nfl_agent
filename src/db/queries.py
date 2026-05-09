@@ -185,6 +185,52 @@ def upsert_weekly_assignment(db_path: str, assignment: dict) -> None:
                "override_reason": assignment.get("override_reason")})
 
 
+def swap_confidence_points(db_path: str, season: int, week: int,
+                           game_id: str, new_points: int,
+                           reason: str | None = None) -> tuple[str | None, int | None]:
+    """Set game_id to new_points, swapping with whoever currently holds that value.
+
+    Returns (displaced_game_id, old_points_of_target) so callers can report what changed.
+    No-op if game_id already has new_points.
+    """
+    with _conn(db_path) as conn:
+        rows = conn.execute("""
+            SELECT game_id, confidence_points, predicted_winner, win_probability,
+                   is_uncertain, is_overridden, override_reason
+            FROM weekly_assignments
+            WHERE season=? AND week=?
+        """, (season, week)).fetchall()
+
+    current = {r["game_id"]: dict(r) for r in rows}
+    target = current.get(game_id)
+    if target is None or target["confidence_points"] == new_points:
+        return None, None
+
+    old_points = target["confidence_points"]
+    displaced = next(
+        (a for gid, a in current.items() if a["confidence_points"] == new_points and gid != game_id),
+        None,
+    )
+
+    with _conn(db_path) as conn:
+        # Give displaced game the old points
+        if displaced:
+            conn.execute("""
+                UPDATE weekly_assignments
+                SET confidence_points=?, is_overridden=1, updated_at=datetime('now')
+                WHERE season=? AND week=? AND game_id=?
+            """, (old_points, season, week, displaced["game_id"]))
+
+        # Update target game
+        conn.execute("""
+            UPDATE weekly_assignments
+            SET confidence_points=?, is_overridden=1, override_reason=?, updated_at=datetime('now')
+            WHERE season=? AND week=? AND game_id=?
+        """, (new_points, reason, season, week, game_id))
+
+    return displaced["game_id"] if displaced else None, old_points
+
+
 def get_weekly_assignments(db_path: str, season: int, week: int) -> list[dict]:
     with _conn(db_path) as conn:
         rows = conn.execute("""

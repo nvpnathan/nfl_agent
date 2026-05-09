@@ -88,10 +88,9 @@ def _load_odds(season: int, week: int) -> dict[str, dict]:
         return {}
 
 
-def _do_override(season: int, week: int, assignment: dict,
-                 new_pts: int, reason: str) -> bool:
+def _do_swap(season: int, week: int, game_id: str, new_pts: int, reason: str) -> bool:
     result = _api_post(f"/week/{season}/{week}/override", {
-        "game_id": assignment["game_id"],
+        "game_id": game_id,
         "confidence_points": new_pts,
         "reason": reason or None,
     })
@@ -99,17 +98,8 @@ def _do_override(season: int, week: int, assignment: dict,
         return True
     try:
         db = _config()["db"]["path"]
-        from src.db.queries import upsert_weekly_assignment
-        upsert_weekly_assignment(db, {
-            "season": season, "week": week,
-            "game_id": assignment["game_id"],
-            "predicted_winner": assignment["predicted_winner"],
-            "confidence_points": new_pts,
-            "win_probability": assignment["win_probability"],
-            "is_uncertain": assignment.get("is_uncertain", 0),
-            "is_overridden": 1,
-            "override_reason": reason or None,
-        })
+        from src.db.queries import swap_confidence_points
+        swap_confidence_points(db, season, week, game_id, new_pts, reason or None)
         return True
     except Exception as e:
         st.error(f"Save failed: {e}")
@@ -276,18 +266,43 @@ for a in assignments:
             if overridden and a.get("override_reason"):
                 st.info(f"Override reason: {a['override_reason']}")
 
-        # ── override form ─────────────────────────────────────────────────────
+        # ── override / swap form ──────────────────────────────────────────────
         with r2:
-            with st.form(key=f"override_{game_id}", border=False):
-                fc1, fc2 = st.columns([1, 2])
-                new_pts = fc1.number_input(
-                    "Override pts", min_value=1, max_value=len(assignments),
-                    value=pts, label_visibility="collapsed",
+            # Build label map: points → "16 pts — KC vs DEN"
+            pts_to_label = {}
+            for other in assignments:
+                og = games_by_id.get(other["game_id"], {})
+                oh = og.get("home_team") or other.get("home_team", "?")
+                oa = og.get("away_team") or other.get("away_team", "?")
+                label = f"{other['confidence_points']} pts — {oa} @ {oh}"
+                pts_to_label[other["confidence_points"]] = label
+
+            all_pts = sorted(pts_to_label.keys(), reverse=True)
+            current_idx = all_pts.index(pts) if pts in all_pts else 0
+
+            with st.form(key=f"swap_{game_id}", border=False):
+                selected_label = st.selectbox(
+                    "Swap with",
+                    options=[pts_to_label[p] for p in all_pts],
+                    index=current_idx,
+                    label_visibility="visible",
+                    key=f"sel_{game_id}",
                 )
-                reason_in = fc2.text_input(
-                    "Reason", placeholder="reason (optional)",
-                    label_visibility="collapsed",
+                # Resolve selected points from label
+                new_pts = next(p for p, lbl in pts_to_label.items() if lbl == selected_label)
+
+                # Show swap preview
+                if new_pts != pts:
+                    swap_target = pts_to_label[new_pts]
+                    st.caption(
+                        f"This will swap **{pts} pts** (this game) ↔ **{new_pts} pts** ({swap_target.split('—')[1].strip()})"
+                    )
+
+                reason_in = st.text_input(
+                    "Reason (optional)", placeholder="injury news, gut feel…",
+                    label_visibility="visible",
                 )
-                if st.form_submit_button("Apply override", use_container_width=True):
-                    if _do_override(season, week, a, new_pts, reason_in):
+                if st.form_submit_button("Apply swap", use_container_width=True,
+                                         disabled=(new_pts == pts)):
+                    if _do_swap(season, week, game_id, new_pts, reason_in):
                         st.rerun()

@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from src.db.schema import create_schema
 from src.db.queries import (
     get_games_for_week, get_weekly_assignments, get_injuries_for_week,
-    upsert_weekly_assignment,
+    upsert_weekly_assignment, swap_confidence_points,
 )
 
 
@@ -56,25 +56,22 @@ class OverrideRequest(BaseModel):
 
 @app.post("/week/{season}/{week}/override")
 def override_pick(season: int, week: int, req: OverrideRequest):
-    """Manually override the confidence point assignment for a game."""
+    """Swap confidence points: sets game_id to new points, swapping with whoever held them."""
     db = _db_path()
     assignments = get_weekly_assignments(db, season, week)
-    match = next((a for a in assignments if a["game_id"] == req.game_id), None)
-    if not match:
+    if not any(a["game_id"] == req.game_id for a in assignments):
         raise HTTPException(status_code=404, detail="Assignment not found")
 
-    upsert_weekly_assignment(db, {
-        "season": season,
-        "week": week,
+    displaced_id, old_pts = swap_confidence_points(
+        db, season, week, req.game_id, req.confidence_points, req.reason
+    )
+    return {
+        "ok": True,
         "game_id": req.game_id,
-        "predicted_winner": match["predicted_winner"],
         "confidence_points": req.confidence_points,
-        "win_probability": match["win_probability"],
-        "is_uncertain": match["is_uncertain"],
-        "is_overridden": 1,
-        "override_reason": req.reason,
-    })
-    return {"ok": True, "game_id": req.game_id, "confidence_points": req.confidence_points}
+        "displaced_game_id": displaced_id,
+        "displaced_old_points": old_pts,
+    }
 
 
 def _run_refresh(season: int, week: int) -> None:
