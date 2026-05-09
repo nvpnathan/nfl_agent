@@ -156,3 +156,13 @@ def test_build_training_dataset_returns_dataframe(db_with_history):
     assert "home_win" in df.columns
     assert set(FEATURE_COLS).issubset(set(df.columns))
     assert df["home_win"].isin([0, 1]).all()
+
+
+def test_build_training_dataset_excludes_game_without_odds(db_with_history):
+    from src.db.queries import insert_game_odds
+    # Only g1 gets odds — g2 (completed) has no odds row
+    insert_game_odds(db_with_history, {"espn_id": "g1", "home_spread": -3.0, "game_total": 45.5,
+                                        "home_moneyline": "4/6", "away_moneyline": "5/4"})
+    df = build_training_dataset(db_with_history, seasons=[2024])
+    assert len(df) == 1
+    assert df.iloc[0]["espn_id"] == "g1"

@@ -137,6 +137,8 @@ def build_training_dataset(
     rows = []
     for _, game in games.iterrows():
         g = dict(game)
+        if g.get("home_win") is None:
+            continue
         odds = get_game_odds(db_path, g["espn_id"])
         if odds is None:
             continue
