@@ -5,6 +5,7 @@ import pytest
 from src.db.schema import create_schema
 
 def test_schema_creates_all_tables():
+    import tempfile
     with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
         db_path = f.name
     try:
@@ -13,11 +14,15 @@ def test_schema_creates_all_tables():
         cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
         tables = {row[0] for row in cursor.fetchall()}
         conn.close()
-        expected = {"games", "predictions", "weekly_assignments", "conversations",
-                    "rerankings", "injury_reports", "model_metrics", "family_picks"}
+        expected = {
+            "games", "team_game_stats", "injury_reports", "depth_charts",
+            "predictions", "weekly_assignments", "conversations",
+            "rerankings", "model_metrics", "family_picks",
+        }
         assert expected.issubset(tables)
     finally:
         os.unlink(db_path)
+
 
 @pytest.fixture
 def tmp_db(tmp_path):
