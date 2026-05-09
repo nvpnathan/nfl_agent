@@ -12,9 +12,9 @@ from src.model.train import train_model
 from src.model.evaluate import run_season_backtest
 
 FOLDS = [
-    (list(range(2019, 2022)), 2022),
-    (list(range(2019, 2023)), 2023),
-    (list(range(2019, 2024)), 2024),
+    (list(range(2018, 2022)), 2022),
+    (list(range(2018, 2023)), 2023),
+    (list(range(2018, 2024)), 2024),
 ]
 
 
