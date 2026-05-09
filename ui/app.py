@@ -1,12 +1,13 @@
 """NFL Confidence Pool — Streamlit dashboard.
 
 Run: uv run streamlit run ui/app.py
-Requires the FastAPI server to be running on port 8000, OR operates
-in standalone mode by importing src directly when the API is unavailable.
+Works standalone (direct DB) or with FastAPI on port 8000.
 """
+import sqlite3
+import subprocess
 import sys
 import yaml
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import requests
@@ -23,55 +24,150 @@ st.set_page_config(
 )
 
 
-# ── helpers ──────────────────────────────────────────────────────────────────
+# ── helpers ───────────────────────────────────────────────────────────────────
 
 def _current_season() -> int:
     now = datetime.now(timezone.utc)
     return now.year if now.month >= 8 else now.year - 1
 
 
-def _api_get(path: str) -> dict | list | None:
+def _api_get(path: str):
     try:
-        resp = requests.get(f"{API_BASE}{path}", timeout=5)
-        resp.raise_for_status()
-        return resp.json()
+        r = requests.get(f"{API_BASE}{path}", timeout=5)
+        r.raise_for_status()
+        return r.json()
     except Exception:
         return None
 
 
-def _api_post(path: str, payload: dict) -> dict | None:
+def _api_post(path: str, payload: dict):
     try:
-        resp = requests.post(f"{API_BASE}{path}", json=payload, timeout=10)
-        resp.raise_for_status()
-        return resp.json()
-    except Exception as e:
-        st.error(f"API error: {e}")
+        r = requests.post(f"{API_BASE}{path}", json=payload, timeout=10)
+        r.raise_for_status()
+        return r.json()
+    except Exception:
         return None
 
 
-def _load_direct(season: int, week: int) -> dict | None:
-    """Fallback: load assignments directly from DB when API is unavailable."""
-    try:
-        with open("config.yaml") as f:
-            config = yaml.safe_load(f)
-        db_path = config["db"]["path"]
-        from src.db.queries import get_weekly_assignments, get_games_for_week
-        return {
-            "season": season,
-            "week": week,
-            "assignments": get_weekly_assignments(db_path, season, week),
-            "games": get_games_for_week(db_path, season, week),
-        }
-    except Exception as e:
-        st.error(f"Could not load data: {e}")
-        return None
+def _config() -> dict:
+    with open("config.yaml") as f:
+        return yaml.safe_load(f)
 
 
 def _load_week(season: int, week: int) -> dict | None:
     data = _api_get(f"/week/{season}/{week}")
     if data is None:
-        data = _load_direct(season, week)
+        try:
+            db = _config()["db"]["path"]
+            from src.db.queries import get_weekly_assignments, get_games_for_week
+            data = {
+                "season": season, "week": week,
+                "assignments": get_weekly_assignments(db, season, week),
+                "games": get_games_for_week(db, season, week),
+            }
+        except Exception as e:
+            st.error(f"Could not load data: {e}")
+            return None
     return data
+
+
+def _load_odds(season: int, week: int) -> dict[str, dict]:
+    """Return {espn_id: {home_spread, game_total}} for the week."""
+    try:
+        db = _config()["db"]["path"]
+        conn = sqlite3.connect(db)
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute("""
+            SELECT go.espn_id, go.home_spread, go.game_total
+            FROM game_odds go JOIN games g USING(espn_id)
+            WHERE g.season=? AND g.week=?
+        """, (season, week)).fetchall()
+        conn.close()
+        return {r["espn_id"]: dict(r) for r in rows}
+    except Exception:
+        return {}
+
+
+def _do_override(season: int, week: int, assignment: dict,
+                 new_pts: int, reason: str) -> bool:
+    result = _api_post(f"/week/{season}/{week}/override", {
+        "game_id": assignment["game_id"],
+        "confidence_points": new_pts,
+        "reason": reason or None,
+    })
+    if result:
+        return True
+    try:
+        db = _config()["db"]["path"]
+        from src.db.queries import upsert_weekly_assignment
+        upsert_weekly_assignment(db, {
+            "season": season, "week": week,
+            "game_id": assignment["game_id"],
+            "predicted_winner": assignment["predicted_winner"],
+            "confidence_points": new_pts,
+            "win_probability": assignment["win_probability"],
+            "is_uncertain": assignment.get("is_uncertain", 0),
+            "is_overridden": 1,
+            "override_reason": reason or None,
+        })
+        return True
+    except Exception as e:
+        st.error(f"Save failed: {e}")
+        return False
+
+
+def _format_time(game_date: str) -> str:
+    if not game_date:
+        return ""
+    try:
+        dt = datetime.fromisoformat(game_date.replace("Z", "+00:00"))
+        offset = -4 if 3 <= dt.month <= 11 else -5
+        local = dt + timedelta(hours=offset)
+        return local.strftime("%a %b %-d · %-I:%M %p ET")
+    except Exception:
+        return ""
+
+
+def _spread_text(espn_id: str, home_team: str, away_team: str, odds: dict) -> str:
+    o = odds.get(espn_id)
+    if not o:
+        return "—"
+    spread = o["home_spread"]
+    total = o["game_total"]
+    if spread < -0.1:
+        fav = f"{home_team} {spread:.1f}"
+    elif spread > 0.1:
+        fav = f"{away_team} -{spread:.1f}"
+    else:
+        fav = "EVEN"
+    return f"{fav}  ·  O/U {total:.1f}"
+
+
+def _confidence_tier(prob: float) -> tuple[str, str]:
+    """Return (badge_text, streamlit_color_hint)."""
+    if prob >= 0.70:
+        return "🟢 Lock", "green"
+    elif prob >= 0.62:
+        return "🟡 Lean", "yellow"
+    else:
+        return "🔴 Toss-up", "red"
+
+
+def _do_refresh(season: int, week: int) -> None:
+    result = _api_post(f"/refresh/{season}/{week}", {})
+    if result:
+        st.success("Refresh queued — reload in a moment.")
+        return
+    try:
+        subprocess.run(
+            [sys.executable, "scripts/refresh_weekly.py",
+             "--season", str(season), "--week", str(week)],
+            check=True, capture_output=True,
+        )
+        st.success("Refresh complete.")
+        st.rerun()
+    except subprocess.CalledProcessError as e:
+        st.error(f"Refresh failed: {e.stderr.decode()[:400]}")
 
 
 # ── sidebar ───────────────────────────────────────────────────────────────────
@@ -79,153 +175,119 @@ def _load_week(season: int, week: int) -> dict | None:
 with st.sidebar:
     st.title("🏈 NFL Confidence Pool")
 
-    current_season = _current_season()
-    season = st.number_input("Season", min_value=2018, max_value=current_season + 1,
-                              value=current_season, step=1)
+    season = st.number_input("Season", min_value=2018,
+                              max_value=_current_season() + 1,
+                              value=_current_season(), step=1)
     week = st.number_input("Week", min_value=1, max_value=22, value=1, step=1)
 
-    if st.button("Refresh Week Data", type="primary"):
-        with st.spinner("Fetching games, odds, and injuries..."):
-            result = _api_post(f"/refresh/{season}/{week}", {})
-            if result:
-                st.success("Refresh queued — reload in a moment.")
-            else:
-                # Fallback: run refresh directly
-                try:
-                    import subprocess, sys
-                    subprocess.run(
-                        [sys.executable, "scripts/refresh_weekly.py",
-                         "--season", str(season), "--week", str(week)],
-                        check=True, capture_output=True,
-                    )
-                    st.success("Refresh complete.")
-                    st.rerun()
-                except subprocess.CalledProcessError as e:
-                    st.error(f"Refresh failed: {e.stderr.decode()[:400]}")
+    if st.button("Refresh Week Data", type="primary", use_container_width=True):
+        with st.spinner("Fetching games, odds, injuries, weather…"):
+            _do_refresh(int(season), int(week))
 
     st.divider()
     api_ok = _api_get("/health") is not None
     st.caption(f"API: {'🟢 connected' if api_ok else '🔴 offline (direct mode)'}")
 
 
-# ── main panel ────────────────────────────────────────────────────────────────
+# ── load data ─────────────────────────────────────────────────────────────────
 
-st.header(f"Week {week} — {season} Season")
-
-data = _load_week(int(season), int(week))
+season, week = int(season), int(week)
+data = _load_week(season, week)
 
 if not data or not data.get("assignments"):
-    st.info("No picks for this week yet. Click **Refresh Week Data** in the sidebar.")
+    st.header(f"Week {week} — {season} Season")
+    st.info("No picks yet. Click **Refresh Week Data** in the sidebar.")
     st.stop()
 
 assignments = data["assignments"]
 games_by_id = {g["espn_id"]: g for g in data.get("games", [])}
+odds = _load_odds(season, week)
 
-# ── pick sheet ────────────────────────────────────────────────────────────────
+# Re-derive uncertainty from probability (>= 62% = confident enough)
+for a in assignments:
+    a["_close_call"] = a["win_probability"] < 0.62
 
-st.subheader("Confidence Pick Sheet")
+# ── summary metrics ───────────────────────────────────────────────────────────
 
-total_pts = sum(a["confidence_points"] for a in assignments)
-n_uncertain = sum(1 for a in assignments if a.get("is_uncertain"))
+st.header(f"Week {week} — {season} Season")
+
+n_locks = sum(1 for a in assignments if a["win_probability"] >= 0.70)
+n_close = sum(1 for a in assignments if a["_close_call"])
 n_overridden = sum(1 for a in assignments if a.get("is_overridden"))
 
-col1, col2, col3, col4 = st.columns(4)
-col1.metric("Games", len(assignments))
-col2.metric("Total Points", total_pts)
-col3.metric("Uncertain Picks", n_uncertain)
-col4.metric("Overridden", n_overridden)
+c1, c2, c3, c4 = st.columns(4)
+c1.metric("Games", len(assignments))
+c2.metric("Locks (≥70%)", n_locks)
+c3.metric("Close Calls (<62%)", n_close)
+c4.metric("Overridden", n_overridden)
 
 st.divider()
+
+# ── pick cards ────────────────────────────────────────────────────────────────
 
 for a in assignments:
-    g = games_by_id.get(a["game_id"], {})
+    game_id = a["game_id"]
+    g = games_by_id.get(game_id, {})
     home = g.get("home_team") or a.get("home_team", "?")
     away = g.get("away_team") or a.get("away_team", "?")
-    matchup = f"{away} @ {home}"
-
     winner = a["predicted_winner"]
+    loser = away if winner == home else home
     prob = a["win_probability"]
     pts = a["confidence_points"]
-    uncertain = a.get("is_uncertain", False)
-    overridden = a.get("is_overridden", False)
+    is_indoor = bool(g.get("is_indoor", 0))
+    close_call = a["_close_call"]
+    overridden = bool(a.get("is_overridden"))
 
-    flags = []
-    if uncertain:
-        flags.append("⚠ close call")
-    if overridden:
-        flags.append("✏ overridden")
-    flag_str = "  " + "  ".join(flags) if flags else ""
+    badge, _ = _confidence_tier(prob)
+    venue_icon = "🏟" if is_indoor else "🌤"
+    game_time = _format_time(g.get("game_date", ""))
+    spread = _spread_text(game_id, home, away, odds)
 
-    with st.expander(
-        f"**{pts} pts** — {winner}  ({prob:.0%})  |  {matchup}{flag_str}",
-        expanded=False,
-    ):
-        c1, c2 = st.columns([3, 1])
-        with c1:
-            st.write(f"**Matchup:** {matchup}")
-            st.write(f"**Predicted winner:** {winner} ({prob:.1%})")
-            if uncertain:
-                st.warning("Close call — within 3% of adjacent pick. Consider overriding.")
+    with st.container(border=True):
+        # ── header row ────────────────────────────────────────────────────────
+        h1, h2, h3 = st.columns([1, 5, 2])
+        with h1:
+            st.metric("Pts", pts)
+        with h2:
+            st.markdown(f"### {away} @ {home}")
+            meta_parts = []
+            if game_time:
+                meta_parts.append(game_time)
+            meta_parts.append(f"{venue_icon} {'Indoor' if is_indoor else 'Outdoor'}")
             if overridden:
-                reason = a.get("override_reason") or "No reason given"
-                st.info(f"Manually overridden: {reason}")
+                meta_parts.append("✏️ overridden")
+            st.caption("  ·  ".join(meta_parts))
+        with h3:
+            st.markdown(f"**{badge}**")
+            st.progress(prob, text=f"{winner} wins {prob:.0%}")
 
-        with c2:
-            st.write("**Override points:**")
-            new_pts = st.number_input(
-                "Points", min_value=1, max_value=len(assignments),
-                value=int(pts), key=f"pts_{a['game_id']}",
-                label_visibility="collapsed",
+        # ── reasoning row ─────────────────────────────────────────────────────
+        r1, r2 = st.columns([3, 2])
+        with r1:
+            st.markdown(
+                f"**Pick:** {winner} over {loser} &nbsp;·&nbsp; "
+                f"**Spread:** {spread}"
             )
-            reason_input = st.text_input(
-                "Reason", placeholder="gut feel, injury news...",
-                key=f"reason_{a['game_id']}",
-                label_visibility="collapsed",
-            )
-            if st.button("Apply", key=f"apply_{a['game_id']}"):
-                result = _api_post(f"/week/{season}/{week}/override", {
-                    "game_id": a["game_id"],
-                    "confidence_points": new_pts,
-                    "reason": reason_input or None,
-                })
-                if result:
-                    st.success("Saved.")
-                    st.rerun()
-                else:
-                    # Direct fallback
-                    try:
-                        with open("config.yaml") as f:
-                            config = yaml.safe_load(f)
-                        from src.db.queries import upsert_weekly_assignment
-                        upsert_weekly_assignment(config["db"]["path"], {
-                            "season": int(season), "week": int(week),
-                            "game_id": a["game_id"],
-                            "predicted_winner": winner,
-                            "confidence_points": new_pts,
-                            "win_probability": prob,
-                            "is_uncertain": int(a.get("is_uncertain", False)),
-                            "is_overridden": 1,
-                            "override_reason": reason_input or None,
-                        })
-                        st.success("Saved.")
+            if close_call:
+                st.warning(
+                    f"Close call — model gives {winner} only {prob:.0%}. "
+                    "Consider lowering the confidence points or overriding."
+                )
+            if overridden and a.get("override_reason"):
+                st.info(f"Override reason: {a['override_reason']}")
+
+        # ── override form ─────────────────────────────────────────────────────
+        with r2:
+            with st.form(key=f"override_{game_id}", border=False):
+                fc1, fc2 = st.columns([1, 2])
+                new_pts = fc1.number_input(
+                    "Override pts", min_value=1, max_value=len(assignments),
+                    value=pts, label_visibility="collapsed",
+                )
+                reason_in = fc2.text_input(
+                    "Reason", placeholder="reason (optional)",
+                    label_visibility="collapsed",
+                )
+                if st.form_submit_button("Apply override", use_container_width=True):
+                    if _do_override(season, week, a, new_pts, reason_in):
                         st.rerun()
-                    except Exception as e:
-                        st.error(f"Save failed: {e}")
-
-# ── raw table view ────────────────────────────────────────────────────────────
-
-st.divider()
-with st.expander("Raw pick table"):
-    import pandas as pd
-    rows = []
-    for a in assignments:
-        g = games_by_id.get(a["game_id"], {})
-        rows.append({
-            "Pts": a["confidence_points"],
-            "Pick": a["predicted_winner"],
-            "Prob": f"{a['win_probability']:.0%}",
-            "Matchup": f"{g.get('away_team','?')} @ {g.get('home_team','?')}",
-            "Uncertain": "⚠" if a.get("is_uncertain") else "",
-            "Override": "✏" if a.get("is_overridden") else "",
-        })
-    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
