@@ -1,11 +1,34 @@
-import json
-from pathlib import Path
 import pytest
 from src.data.espn import parse_game, parse_box_score, _parse_split, _parse_possession
 
 
-def load_season_fixture():
-    return json.loads(Path("nfl_season_2020.json").read_text())
+def _make_event(espn_id="401220225", home_abbr="HOU", away_abbr="BUF",
+                home_score="20", away_score="13", status="STATUS_FINAL",
+                season_year=2019, season_type=3, week=1):
+    return {
+        "id": espn_id,
+        "date": "2020-01-04T18:05Z",
+        "season": {"year": season_year, "type": season_type},
+        "week": {"number": week},
+        "status": {"type": {"name": status}},
+        "competitions": [{
+            "neutralSite": False,
+            "attendance": 70000,
+            "venue": {"fullName": "NRG Stadium", "indoor": True},
+            "competitors": [
+                {
+                    "homeAway": "home",
+                    "score": home_score,
+                    "team": {"abbreviation": home_abbr, "id": "34"},
+                },
+                {
+                    "homeAway": "away",
+                    "score": away_score,
+                    "team": {"abbreviation": away_abbr, "id": "2"},
+                },
+            ],
+        }],
+    }
 
 
 def test_parse_split_made_att():
@@ -21,33 +44,28 @@ def test_parse_possession_to_seconds():
 
 
 def test_parse_game_extracts_teams():
-    data = load_season_fixture()
-    event = data["events"][0]
+    event = _make_event()
     game = parse_game(event)
     assert game["home_team"] == "HOU"
     assert game["away_team"] == "BUF"
-    assert game["espn_id"] == event["id"]
-    assert game["season"] == 2019  # ESPN year for Jan 2020 playoff game
+    assert game["espn_id"] == "401220225"
+    assert game["season"] == 2019
     assert isinstance(game["is_indoor"], int)
     assert isinstance(game["is_neutral"], int)
 
 
 def test_parse_game_completed_sets_home_win():
-    data = load_season_fixture()
-    # First event is a completed playoff game (STATUS_FINAL)
-    event = data["events"][0]
+    event = _make_event(home_score="20", away_score="13")
     game = parse_game(event)
-    assert game["home_win"] in (0, 1)
-    assert game["home_score"] is not None
-    assert game["away_score"] is not None
+    assert game["home_win"] == 1
+    assert game["home_score"] == 20
+    assert game["away_score"] == 13
 
 
 def test_parse_game_postseason_type():
-    data = load_season_fixture()
-    # All events in season fixture are post-season (type=3)
-    event = data["events"][0]
+    event = _make_event(season_type=3, week=1)
     game = parse_game(event)
-    assert game["game_type"] in ("wildcard", "divisional", "conference", "superbowl")
+    assert game["game_type"] == "wildcard"
 
 
 def test_parse_box_score_returns_two_teams():
