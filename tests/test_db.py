@@ -155,3 +155,65 @@ def test_weather_impact_indoor_is_zero():
 
 def test_weather_impact_cold_wind_negative():
     assert estimate_weather_impact(is_outdoor=True, temperature=20, wind_speed=25) < 0
+
+
+from src.db.queries import insert_game_odds, get_game_odds
+
+
+def _game(espn_id, season, week, home, away, home_score, away_score, home_win, game_date):
+    return {
+        "espn_id": espn_id,
+        "season": season,
+        "week": week,
+        "game_type": "regular",
+        "home_team": home,
+        "away_team": away,
+        "home_espn_id": "1",
+        "away_espn_id": "2",
+        "game_date": game_date,
+        "venue": "X",
+        "is_indoor": 0,
+        "is_neutral": 0,
+        "attendance": None,
+        "home_score": home_score,
+        "away_score": away_score,
+        "home_win": home_win,
+    }
+
+
+def test_insert_and_get_game_odds(tmp_path):
+    db_path = str(tmp_path / "test.db")
+    create_schema(db_path)
+    from src.db.queries import insert_espn_game
+    insert_espn_game(db_path, _game("g1", 2024, 1, "KC", "BAL", 27, 20, 1, "2024-09-05T20:00Z"))
+    insert_game_odds(db_path, {
+        "espn_id": "g1",
+        "home_spread": -2.5,
+        "game_total": 46.5,
+        "home_moneyline": "4/6",
+        "away_moneyline": "5/4",
+    })
+    row = get_game_odds(db_path, "g1")
+    assert row is not None
+    assert row["home_spread"] == -2.5
+    assert row["game_total"] == 46.5
+    assert row["home_moneyline"] == "4/6"
+
+
+def test_get_game_odds_returns_none_for_missing(tmp_path):
+    db_path = str(tmp_path / "test.db")
+    create_schema(db_path)
+    assert get_game_odds(db_path, "nonexistent") is None
+
+
+def test_insert_game_odds_upserts(tmp_path):
+    db_path = str(tmp_path / "test.db")
+    create_schema(db_path)
+    from src.db.queries import insert_espn_game
+    insert_espn_game(db_path, _game("g1", 2024, 1, "KC", "BAL", 27, 20, 1, "2024-09-05T20:00Z"))
+    insert_game_odds(db_path, {"espn_id": "g1", "home_spread": -2.5, "game_total": 46.5,
+                               "home_moneyline": "4/6", "away_moneyline": "5/4"})
+    insert_game_odds(db_path, {"espn_id": "g1", "home_spread": -3.0, "game_total": 47.0,
+                               "home_moneyline": "1/2", "away_moneyline": "7/4"})
+    row = get_game_odds(db_path, "g1")
+    assert row["home_spread"] == -3.0

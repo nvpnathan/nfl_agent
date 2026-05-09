@@ -61,6 +61,23 @@ def insert_depth_chart_entry(db_path: str, entry: dict) -> None:
         """, entry)
 
 
+def insert_game_odds(db_path: str, odds: dict) -> None:
+    with _conn(db_path) as conn:
+        conn.execute("""
+            INSERT OR REPLACE INTO game_odds
+            (espn_id, home_spread, game_total, home_moneyline, away_moneyline)
+            VALUES (:espn_id, :home_spread, :game_total, :home_moneyline, :away_moneyline)
+        """, odds)
+
+
+def get_game_odds(db_path: str, espn_id: str) -> dict | None:
+    with _conn(db_path) as conn:
+        row = conn.execute(
+            "SELECT * FROM game_odds WHERE espn_id = ?", (espn_id,)
+        ).fetchone()
+    return dict(row) if row else None
+
+
 def get_games_for_week(db_path: str, season: int, week: int) -> list[dict]:
     with _conn(db_path) as conn:
         rows = conn.execute(

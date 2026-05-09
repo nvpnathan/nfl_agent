@@ -71,6 +71,16 @@ def create_schema(db_path: str) -> None:
             UNIQUE(season, week, team, rank)
         );
 
+        CREATE TABLE IF NOT EXISTS game_odds (
+            espn_id TEXT PRIMARY KEY,
+            home_spread REAL NOT NULL,
+            game_total REAL NOT NULL,
+            home_moneyline TEXT,
+            away_moneyline TEXT,
+            fetched_at TEXT DEFAULT (datetime('now')),
+            FOREIGN KEY (espn_id) REFERENCES games(espn_id)
+        );
+
         CREATE TABLE IF NOT EXISTS predictions (
             prediction_id INTEGER PRIMARY KEY AUTOINCREMENT,
             game_id TEXT NOT NULL,
