@@ -1,0 +1,91 @@
+import os
+import subprocess
+import sys
+import yaml
+from contextlib import asynccontextmanager
+from fastapi import FastAPI, HTTPException, BackgroundTasks
+from pydantic import BaseModel
+from src.db.schema import create_schema
+from src.db.queries import (
+    get_games_for_week, get_weekly_assignments, get_injuries_for_week,
+    upsert_weekly_assignment,
+)
+
+
+def _db_path() -> str:
+    return os.environ.get("NFL_DB_PATH", "data/nfl_pool.db")
+
+
+def _config() -> dict:
+    with open(os.environ.get("NFL_CONFIG_PATH", "config.yaml")) as f:
+        return yaml.safe_load(f)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    create_schema(_db_path())
+    yield
+
+
+app = FastAPI(title="NFL Confidence Pool Agent", lifespan=lifespan)
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+
+@app.get("/week/{season}/{week}")
+def get_week(season: int, week: int):
+    db = _db_path()
+    assignments = get_weekly_assignments(db, season, week)
+    games = get_games_for_week(db, season, week)
+    return {"season": season, "week": week, "games": games, "assignments": assignments}
+
+
+@app.get("/injuries/{season}/{week}/{team}")
+def get_injuries(season: int, week: int, team: str):
+    return get_injuries_for_week(_db_path(), team, season, week)
+
+
+class OverrideRequest(BaseModel):
+    game_id: str
+    confidence_points: int
+    reason: str | None = None
+
+
+@app.post("/week/{season}/{week}/override")
+def override_pick(season: int, week: int, req: OverrideRequest):
+    """Manually override the confidence point assignment for a game."""
+    db = _db_path()
+    assignments = get_weekly_assignments(db, season, week)
+    match = next((a for a in assignments if a["game_id"] == req.game_id), None)
+    if not match:
+        raise HTTPException(status_code=404, detail="Assignment not found")
+
+    upsert_weekly_assignment(db, {
+        "season": season,
+        "week": week,
+        "game_id": req.game_id,
+        "predicted_winner": match["predicted_winner"],
+        "confidence_points": req.confidence_points,
+        "win_probability": match["win_probability"],
+        "is_uncertain": match["is_uncertain"],
+        "is_overridden": 1,
+        "override_reason": req.reason,
+    })
+    return {"ok": True, "game_id": req.game_id, "confidence_points": req.confidence_points}
+
+
+def _run_refresh(season: int, week: int) -> None:
+    subprocess.run(
+        [sys.executable, "scripts/refresh_weekly.py", "--season", str(season), "--week", str(week)],
+        check=True,
+    )
+
+
+@app.post("/refresh/{season}/{week}")
+def refresh(season: int, week: int, background_tasks: BackgroundTasks):
+    """Trigger a weekly refresh in the background."""
+    background_tasks.add_task(_run_refresh, season, week)
+    return {"ok": True, "message": f"Refresh queued for season={season} week={week}"}
