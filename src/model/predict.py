@@ -2,13 +2,14 @@ import pandas as pd
 from src.model.train import load_model
 from src.features.builder import FEATURE_COLS
 
+
 def predict_game_prob(model_path: str, features: dict) -> float:
     artifact = load_model(model_path)
     model = artifact["model"]
     medians = artifact.get("medians", {})
     X = pd.DataFrame([features])[FEATURE_COLS].fillna(medians).fillna(0.5)
-    prob = model.predict_proba(X)[0][1]
-    return float(prob)
+    return float(model.predict_proba(X)[0][1])
+
 
 def predict_week(model_path: str, games_features: list[dict]) -> list[dict]:
     artifact = load_model(model_path)

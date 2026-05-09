@@ -17,7 +17,7 @@ def main():
     db_path = config["db"]["path"]
 
     print(f"Building training dataset for seasons {train_seasons}...")
-    train_df = build_training_dataset(seasons=train_seasons)
+    train_df = build_training_dataset(db_path=db_path, seasons=train_seasons)
     print(f"Training on {len(train_df)} games...")
     metrics = train_model(train_df, model_path)
     print(f"Training complete: CV accuracy={metrics['cv_accuracy_mean']:.3f}")
