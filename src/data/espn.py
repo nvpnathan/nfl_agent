@@ -21,7 +21,7 @@ def _get(path: str, params: dict = None) -> dict:
 
 def fetch_scoreboard(season: int, week: int, season_type: int = 2) -> list[dict]:
     """Return list of event dicts. season_type: 2=regular, 3=postseason."""
-    data = _get("scoreboard", params={"season": season, "week": week, "seasontype": season_type})
+    data = _get("scoreboard", params={"dates": season, "week": week, "seasontype": season_type})
     return data.get("events", [])
 
 
