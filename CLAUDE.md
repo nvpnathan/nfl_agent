@@ -10,7 +10,7 @@ A local AI agent that predicts NFL game winners and assigns confidence points (1
 - **Database:** SQLite at `data/nfl_pool.db` (`src/db/`)
 - **ML Model:** XGBoost + sklearn calibration (`src/model/`)
 - **Agent LLM:** Ollama (local 70B, default) or Claude Sonnet 4.6 — set via `config.yaml`
-- **Data:** nfl_data_py (historical), The Odds API, Sleeper API, Open-Meteo
+- **Data:** ESPN API (historical + live), The Odds API, Open-Meteo
 
 ### Key Commands
 ```bash
@@ -42,7 +42,7 @@ uv run pytest tests/ -v
 - The confidence optimizer (`src/optimizer/confidence.py`) sorts games by win probability descending; highest probability gets the most points (rearrangement inequality). Games within 3% of each other are flagged as uncertain
 - Re-rankings are recorded in the `rerankings` table and surfaced as diffs in the UI
 - The agent runs a tool-use loop: it calls tools, gets results, reasons, calls more tools until it has a final answer
-- Playoff detection is schedule-driven — `scripts/refresh_weekly.py` looks up the current week's game type from nfl_data_py to determine the correct point range
+- Playoff detection is schedule-driven — `scripts/refresh_weekly.py` looks up the current week's game type from the ESPN API to determine the correct point range
 
 ### Config
 ```yaml
