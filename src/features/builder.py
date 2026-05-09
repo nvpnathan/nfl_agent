@@ -1,103 +1,150 @@
 import logging
 import pandas as pd
-import numpy as np
 from typing import Optional
-from src.data.historical import load_games, load_schedules, get_team_recent_form, get_rest_days
+from src.db.queries import get_team_box_stats, get_injuries_for_week
 
 FEATURE_COLS = [
-    "odds_home_win_prob", "home_rest_days", "away_rest_days", "rest_advantage",
-    "home_qb_out", "away_qb_out", "home_recent_winpct", "away_recent_winpct",
+    "odds_home_win_prob",
+    "home_rest_days", "away_rest_days", "rest_advantage",
+    "home_recent_winpct", "away_recent_winpct",
+    "home_home_winpct", "away_road_winpct",
     "home_recent_point_diff", "away_recent_point_diff",
-    "temperature", "wind_speed", "home_sos", "away_sos", "is_playoff",
+    "home_turnover_diff_4wk", "away_turnover_diff_4wk",
+    "home_total_yards_4wk", "away_total_yards_4wk",
+    "home_third_down_pct_4wk", "away_third_down_pct_4wk",
+    "home_qb_active", "away_qb_active",
+    "home_key_injuries", "away_key_injuries",
+    "is_indoor", "is_neutral",
+    "temperature", "wind_speed",
+    "home_sos", "away_sos",
+    "is_playoff",
 ]
 
 PLAYOFF_TYPES = {"wildcard", "divisional", "conference", "superbowl"}
+OUT_STATUSES = {"Out", "Doubtful", "IR", "PUP-R"}
+KEY_POSITIONS = {"QB", "RB", "WR", "TE", "OT", "OG", "C", "DE", "DT", "LB", "CB", "S"}
 
 
-def _get_sos(schedules: pd.DataFrame, team: str, season: int, week: int,
-             n: int = 4) -> float:
-    mask = (
-        ((schedules["home_team"] == team) | (schedules["away_team"] == team)) &
-        (schedules["season"] == season) & (schedules["week"] < week) &
-        (schedules["home_score"].notna())
+def _box_features(db_path: str, team: str, season: int, week: int) -> dict:
+    rows = get_team_box_stats(db_path, team, season, week, n=4)
+    if not rows:
+        return {"turnover_diff": 0.0, "total_yards": 0.0, "third_down_pct": 0.35}
+    turnover_diffs, yards, third_pcts = [], [], []
+    for r in rows:
+        turnover_diffs.append(-(r.get("turnovers") or 0))
+        yards.append(r.get("total_yards") or 0)
+        att = r.get("third_down_att") or 1
+        made = r.get("third_down_made") or 0
+        third_pcts.append(made / att)
+    n = len(rows)
+    return {
+        "turnover_diff": sum(turnover_diffs) / n,
+        "total_yards": sum(yards) / n,
+        "third_down_pct": sum(third_pcts) / n,
+    }
+
+
+def _injury_features(db_path: str, team: str, season: int, week: int) -> dict:
+    injuries = get_injuries_for_week(db_path, team, season, week)
+    qb_out = any(
+        i["is_qb"] and i.get("status") in OUT_STATUSES for i in injuries
     )
-    recent = schedules[mask].tail(n)
-    if recent.empty:
-        return 0.5
-    opponent_winpcts = []
-    for _, row in recent.iterrows():
-        opp = row["away_team"] if row["home_team"] == team else row["home_team"]
-        opp_form = get_team_recent_form(schedules, opp, season, row["week"], n=4)
-        opponent_winpcts.append(opp_form["win_pct"])
-    return float(np.mean(opponent_winpcts))
+    key_out = sum(
+        1 for i in injuries
+        if not i["is_qb"]
+        and i.get("status") in OUT_STATUSES
+        and i.get("position") in KEY_POSITIONS
+    )
+    return {"qb_active": 0 if qb_out else 1, "key_injuries": key_out}
 
 
 def build_features_for_game(
-    game_row: pd.Series,
-    schedules: pd.DataFrame,
+    game: dict,
+    db_path: str,
     odds_home_win_prob: float,
-    home_qb_out: bool = False,
-    away_qb_out: bool = False,
     weather: Optional[dict] = None,
 ) -> dict:
-    season = int(game_row["season"])
-    week = int(game_row["week"])
-    home = game_row["home_team"]
-    away = game_row["away_team"]
+    from src.data.historical import (
+        get_team_recent_form, get_rest_days,
+        get_home_road_winpct, get_team_sos,
+    )
+    season = int(game["season"])
+    week = int(game["week"])
+    home = game["home_team"]
+    away = game["away_team"]
 
-    home_rest = get_rest_days(schedules, home, season, week)
-    away_rest = get_rest_days(schedules, away, season, week)
-    home_form = get_team_recent_form(schedules, home, season, week)
-    away_form = get_team_recent_form(schedules, away, season, week)
-    home_sos = _get_sos(schedules, home, season, week)
-    away_sos = _get_sos(schedules, away, season, week)
+    home_form = get_team_recent_form(db_path, home, season, week)
+    away_form = get_team_recent_form(db_path, away, season, week)
+    home_rest = get_rest_days(db_path, home, season, week)
+    away_rest = get_rest_days(db_path, away, season, week)
+    home_home_pct = get_home_road_winpct(db_path, home, season, week, home_games=True)
+    away_road_pct = get_home_road_winpct(db_path, away, season, week, home_games=False)
+    home_sos = get_team_sos(db_path, home, season, week)
+    away_sos = get_team_sos(db_path, away, season, week)
 
-    temperature = weather.get("temperature") if weather else None
-    wind_speed = weather.get("wind_speed") if weather else None
+    home_box = _box_features(db_path, home, season, week)
+    away_box = _box_features(db_path, away, season, week)
+    home_inj = _injury_features(db_path, home, season, week)
+    away_inj = _injury_features(db_path, away, season, week)
+
+    is_indoor = int(game.get("is_indoor", 0))
+    if is_indoor:
+        temperature, wind_speed = 68.0, 0.0
+    else:
+        temperature = weather.get("temperature", 65.0) if weather else 65.0
+        wind_speed = weather.get("wind_speed", 5.0) if weather else 5.0
 
     return {
         "odds_home_win_prob": odds_home_win_prob,
         "home_rest_days": home_rest,
         "away_rest_days": away_rest,
         "rest_advantage": home_rest - away_rest,
-        "home_qb_out": int(home_qb_out),
-        "away_qb_out": int(away_qb_out),
         "home_recent_winpct": home_form["win_pct"],
         "away_recent_winpct": away_form["win_pct"],
+        "home_home_winpct": home_home_pct,
+        "away_road_winpct": away_road_pct,
         "home_recent_point_diff": home_form["avg_point_diff"],
         "away_recent_point_diff": away_form["avg_point_diff"],
-        "temperature": temperature if temperature is not None else 65.0,
-        "wind_speed": wind_speed if wind_speed is not None else 5.0,
+        "home_turnover_diff_4wk": home_box["turnover_diff"],
+        "away_turnover_diff_4wk": away_box["turnover_diff"],
+        "home_total_yards_4wk": home_box["total_yards"],
+        "away_total_yards_4wk": away_box["total_yards"],
+        "home_third_down_pct_4wk": home_box["third_down_pct"],
+        "away_third_down_pct_4wk": away_box["third_down_pct"],
+        "home_qb_active": home_inj["qb_active"],
+        "away_qb_active": away_inj["qb_active"],
+        "home_key_injuries": home_inj["key_injuries"],
+        "away_key_injuries": away_inj["key_injuries"],
+        "is_indoor": is_indoor,
+        "is_neutral": int(game.get("is_neutral", 0)),
+        "temperature": temperature,
+        "wind_speed": wind_speed,
         "home_sos": home_sos,
         "away_sos": away_sos,
-        "is_playoff": int(game_row.get("game_type", "regular") in PLAYOFF_TYPES),
+        "is_playoff": int(game.get("game_type", "regular") in PLAYOFF_TYPES),
     }
 
 
 def build_training_dataset(
+    db_path: str,
     seasons: list[int],
     odds_by_game: Optional[dict] = None,
 ) -> pd.DataFrame:
-    schedules = load_schedules(seasons)
-    games = load_games(seasons)
+    from src.data.historical import load_games
+    games = load_games(db_path, seasons)
     rows = []
     for _, game in games.iterrows():
-        odds_prob = (odds_by_game or {}).get(game["game_id"], 0.55)
+        g = dict(game)
+        odds_prob = (odds_by_game or {}).get(g["espn_id"], 0.55)
         try:
-            features = build_features_for_game(
-                game_row=game,
-                schedules=schedules,
-                odds_home_win_prob=odds_prob,
-                home_qb_out=False,
-                away_qb_out=False,
-                weather=None,
-            )
-            features["home_win"] = int(game["home_win"])
-            features["game_id"] = game["game_id"]
-            features["season"] = int(game["season"])
-            features["week"] = int(game["week"])
+            features = build_features_for_game(g, db_path, odds_prob)
+            features["home_win"] = int(g["home_win"])
+            features["espn_id"] = g["espn_id"]
+            features["season"] = int(g["season"])
+            features["week"] = int(g["week"])
+            features["home_team"] = g["home_team"]
+            features["away_team"] = g["away_team"]
             rows.append(features)
         except Exception as e:
-            logging.warning("Skipping game %s: %s", game.get("game_id", "unknown"), e)
-            continue
+            logging.warning("Skipping game %s: %s", g.get("espn_id"), e)
     return pd.DataFrame(rows)
