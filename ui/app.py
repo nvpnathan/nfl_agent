@@ -144,20 +144,18 @@ def _confidence_tier(prob: float) -> tuple[str, str]:
 
 
 def _do_refresh(season: int, week: int) -> None:
-    result = _api_post(f"/refresh/{season}/{week}", {})
-    if result:
-        st.success("Refresh queued — reload in a moment.")
-        return
+    # Run synchronously so data is ready before the UI reloads.
+    # The API /refresh uses BackgroundTasks (async), so we call the script directly.
     try:
-        subprocess.run(
+        result = subprocess.run(
             [sys.executable, "scripts/refresh_weekly.py",
              "--season", str(season), "--week", str(week)],
-            check=True, capture_output=True,
+            check=True, capture_output=True, text=True,
         )
         st.success("Refresh complete.")
         st.rerun()
     except subprocess.CalledProcessError as e:
-        st.error(f"Refresh failed: {e.stderr.decode()[:400]}")
+        st.error(f"Refresh failed:\n```\n{e.stderr[:600]}\n```")
 
 
 # ── sidebar ───────────────────────────────────────────────────────────────────
