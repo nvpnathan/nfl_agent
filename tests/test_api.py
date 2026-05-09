@@ -61,6 +61,36 @@ def test_override_nonexistent_game():
     assert resp.status_code == 404
 
 
+def test_lock_week_creates_submission():
+    resp = client.post("/week/2024/10/lock")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["season"] == 2024
+    assert data["week"] == 10
+    assert len(data["picks"]) == 1
+    assert data["picks"][0]["model_points"] == 1
+    assert data["picks"][0]["submitted_points"] == 14
+    assert data["picks"][0]["points_delta"] == 13
+
+    get_resp = client.get("/week/2024/10/submission")
+    assert get_resp.status_code == 200
+    assert get_resp.json()["submission"]["submission_id"] == data["submission_id"]
+
+
+def test_revert_pick_restores_model_points():
+    resp = client.post("/week/2024/10/revert", json={"game_id": "g1"})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["old_points"] == 14
+    assert data["model_points"] == 1
+
+    week_resp = client.get("/week/2024/10")
+    assert week_resp.status_code == 200
+    assignment = week_resp.json()["assignments"][0]
+    assert assignment["confidence_points"] == 1
+    assert assignment["is_overridden"] == 0
+
+
 def test_swap_enforces_permutation(tmp_path, monkeypatch):
     """Swapping g1 (14pts) to 10pts should give g2 14pts."""
     from src.db.queries import insert_espn_game, upsert_weekly_assignment, get_weekly_assignments, swap_confidence_points

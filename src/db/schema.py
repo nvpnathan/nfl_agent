@@ -110,6 +110,35 @@ def create_schema(db_path: str) -> None:
             UNIQUE(season, week, game_id)
         );
 
+        CREATE TABLE IF NOT EXISTS weekly_submissions (
+            submission_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            season INTEGER NOT NULL,
+            week INTEGER NOT NULL,
+            status TEXT NOT NULL DEFAULT 'locked',
+            source TEXT NOT NULL DEFAULT 'streamlit',
+            submitted_at TEXT DEFAULT (datetime('now')),
+            UNIQUE(season, week)
+        );
+
+        CREATE TABLE IF NOT EXISTS weekly_submission_picks (
+            submission_id INTEGER NOT NULL,
+            game_id TEXT NOT NULL,
+            model_pick TEXT NOT NULL,
+            submitted_pick TEXT NOT NULL,
+            model_points INTEGER NOT NULL,
+            submitted_points INTEGER NOT NULL,
+            points_delta INTEGER NOT NULL,
+            win_probability REAL NOT NULL,
+            tier TEXT NOT NULL,
+            market TEXT,
+            is_overridden INTEGER DEFAULT 0,
+            override_reason TEXT,
+            PRIMARY KEY (submission_id, game_id),
+            FOREIGN KEY (submission_id) REFERENCES weekly_submissions(submission_id)
+                ON DELETE CASCADE,
+            FOREIGN KEY (game_id) REFERENCES games(espn_id)
+        );
+
         CREATE TABLE IF NOT EXISTS conversations (
             message_id INTEGER PRIMARY KEY AUTOINCREMENT,
             session_id TEXT NOT NULL,
@@ -145,15 +174,7 @@ def create_schema(db_path: str) -> None:
             created_at TEXT DEFAULT (datetime('now'))
         );
 
-        CREATE TABLE IF NOT EXISTS family_picks (
-            pick_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            season INTEGER NOT NULL,
-            week INTEGER NOT NULL,
-            member_name TEXT NOT NULL,
-            game_id TEXT NOT NULL,
-            picked_team TEXT NOT NULL,
-            confidence_points INTEGER NOT NULL
-        );
+        DROP TABLE IF EXISTS family_picks;
         """)
         conn.commit()
     finally:

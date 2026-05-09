@@ -9,6 +9,7 @@ from src.db.schema import create_schema
 from src.db.queries import (
     get_games_for_week, get_weekly_assignments, get_injuries_for_week,
     upsert_weekly_assignment, swap_confidence_points,
+    create_weekly_submission, get_weekly_submission, revert_assignment_to_model,
 )
 
 
@@ -54,6 +55,14 @@ class OverrideRequest(BaseModel):
     reason: str | None = None
 
 
+class LockRequest(BaseModel):
+    source: str = "api"
+
+
+class RevertRequest(BaseModel):
+    game_id: str
+
+
 @app.post("/week/{season}/{week}/override")
 def override_pick(season: int, week: int, req: OverrideRequest):
     """Swap confidence points: sets game_id to new points, swapping with whoever held them."""
@@ -72,6 +81,29 @@ def override_pick(season: int, week: int, req: OverrideRequest):
         "displaced_game_id": displaced_id,
         "displaced_old_points": old_pts,
     }
+
+
+@app.post("/week/{season}/{week}/revert")
+def revert_pick(season: int, week: int, req: RevertRequest):
+    try:
+        return revert_assignment_to_model(_db_path(), season, week, req.game_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.post("/week/{season}/{week}/lock")
+def lock_week(season: int, week: int, req: LockRequest | None = None):
+    try:
+        source = req.source if req else "api"
+        return create_weekly_submission(_db_path(), season, week, source=source)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.get("/week/{season}/{week}/submission")
+def get_submission(season: int, week: int):
+    submission = get_weekly_submission(_db_path(), season, week)
+    return {"submission": submission}
 
 
 def _run_refresh(season: int, week: int) -> None:

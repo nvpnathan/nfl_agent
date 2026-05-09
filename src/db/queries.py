@@ -9,6 +9,64 @@ def _conn(db_path: str) -> sqlite3.Connection:
     return conn
 
 
+def _tier(prob: float) -> str:
+    if prob >= 0.70:
+        return "lock"
+    if prob >= 0.62:
+        return "lean"
+    return "toss"
+
+
+def _market_text(row: dict) -> str | None:
+    spread = row.get("home_spread")
+    total = row.get("game_total")
+    if spread is None or total is None:
+        return None
+    if spread < -0.1:
+        fav = f"{row['home_team']} {spread:.1f}"
+    elif spread > 0.1:
+        fav = f"{row['away_team']} -{spread:.1f}"
+    else:
+        fav = "EVEN"
+    return f"{fav}  ·  O/U {total:.1f}"
+
+
+def _model_point_map(assignments: list[dict]) -> dict[str, int]:
+    model_order = sorted(assignments, key=lambda a: a["win_probability"], reverse=True)
+    return {
+        a["game_id"]: len(model_order) - i
+        for i, a in enumerate(model_order)
+    }
+
+
+def _normalize_weekly_overrides(conn: sqlite3.Connection,
+                                season: int, week: int) -> None:
+    rows = conn.execute("""
+        SELECT game_id, confidence_points, win_probability
+        FROM weekly_assignments
+        WHERE season=? AND week=?
+    """, (season, week)).fetchall()
+    assignments = [dict(r) for r in rows]
+    model_points = _model_point_map(assignments)
+
+    for assignment in assignments:
+        is_overridden = int(
+            assignment["confidence_points"] != model_points[assignment["game_id"]]
+        )
+        if is_overridden:
+            conn.execute("""
+                UPDATE weekly_assignments
+                SET is_overridden=1, updated_at=datetime('now')
+                WHERE season=? AND week=? AND game_id=?
+            """, (season, week, assignment["game_id"]))
+        else:
+            conn.execute("""
+                UPDATE weekly_assignments
+                SET is_overridden=0, override_reason=NULL, updated_at=datetime('now')
+                WHERE season=? AND week=? AND game_id=?
+            """, (season, week, assignment["game_id"]))
+
+
 def get_existing_espn_ids(db_path: str) -> set:
     with _conn(db_path) as conn:
         rows = conn.execute("SELECT espn_id FROM games").fetchall()
@@ -227,8 +285,62 @@ def swap_confidence_points(db_path: str, season: int, week: int,
             SET confidence_points=?, is_overridden=1, override_reason=?, updated_at=datetime('now')
             WHERE season=? AND week=? AND game_id=?
         """, (new_points, reason, season, week, game_id))
+        _normalize_weekly_overrides(conn, season, week)
 
     return displaced["game_id"] if displaced else None, old_points
+
+
+def revert_assignment_to_model(db_path: str, season: int, week: int,
+                               game_id: str) -> dict:
+    """Move one game back to its model-assigned confidence points."""
+    with _conn(db_path) as conn:
+        rows = conn.execute("""
+            SELECT game_id, confidence_points, predicted_winner, win_probability,
+                   is_uncertain, is_overridden, override_reason
+            FROM weekly_assignments
+            WHERE season=? AND week=?
+        """, (season, week)).fetchall()
+
+        current = {r["game_id"]: dict(r) for r in rows}
+        target = current.get(game_id)
+        if target is None:
+            raise ValueError("Assignment not found")
+
+        model_points = _model_point_map(list(current.values()))
+        target_model_points = model_points[game_id]
+        old_points = target["confidence_points"]
+        displaced = next(
+            (
+                a for gid, a in current.items()
+                if a["confidence_points"] == target_model_points and gid != game_id
+            ),
+            None,
+        )
+
+        if old_points != target_model_points:
+            if displaced:
+                conn.execute("""
+                    UPDATE weekly_assignments
+                    SET confidence_points=?, is_overridden=1, updated_at=datetime('now')
+                    WHERE season=? AND week=? AND game_id=?
+                """, (old_points, season, week, displaced["game_id"]))
+
+            conn.execute("""
+                UPDATE weekly_assignments
+                SET confidence_points=?, is_overridden=0, override_reason=NULL,
+                    updated_at=datetime('now')
+                WHERE season=? AND week=? AND game_id=?
+            """, (target_model_points, season, week, game_id))
+
+        _normalize_weekly_overrides(conn, season, week)
+
+    return {
+        "ok": True,
+        "game_id": game_id,
+        "old_points": old_points,
+        "model_points": target_model_points,
+        "displaced_game_id": displaced["game_id"] if displaced else None,
+    }
 
 
 def get_weekly_assignments(db_path: str, season: int, week: int) -> list[dict]:
@@ -240,6 +352,107 @@ def get_weekly_assignments(db_path: str, season: int, week: int) -> list[dict]:
             ORDER BY wa.confidence_points DESC
         """, (season, week)).fetchall()
     return [dict(r) for r in rows]
+
+
+def create_weekly_submission(db_path: str, season: int, week: int,
+                             source: str = "streamlit") -> dict:
+    """Persist the current weekly picks as the locked submission snapshot.
+
+    The model points are reconstructed from the model win probabilities, matching
+    the confidence optimizer's ordering. The submitted points are the current
+    possibly overridden values in weekly_assignments.
+    """
+    with _conn(db_path) as conn:
+        rows = conn.execute("""
+            SELECT wa.*, g.home_team, g.away_team,
+                   go.home_spread, go.game_total
+            FROM weekly_assignments wa
+            JOIN games g ON wa.game_id = g.espn_id
+            LEFT JOIN game_odds go ON wa.game_id = go.espn_id
+            WHERE wa.season=? AND wa.week=?
+        """, (season, week)).fetchall()
+
+        assignments = [dict(r) for r in rows]
+        if not assignments:
+            raise ValueError(f"No assignments for season={season} week={week}")
+
+        model_order = sorted(
+            assignments, key=lambda a: a["win_probability"], reverse=True
+        )
+        model_points = {
+            a["game_id"]: len(model_order) - i
+            for i, a in enumerate(model_order)
+        }
+
+        conn.execute("""
+            INSERT INTO weekly_submissions
+                (season, week, status, source, submitted_at)
+            VALUES (?, ?, 'locked', ?, datetime('now'))
+            ON CONFLICT(season, week) DO UPDATE SET
+                status='locked',
+                source=excluded.source,
+                submitted_at=datetime('now')
+        """, (season, week, source))
+
+        submission = conn.execute("""
+            SELECT * FROM weekly_submissions WHERE season=? AND week=?
+        """, (season, week)).fetchone()
+        submission_id = submission["submission_id"]
+
+        conn.execute(
+            "DELETE FROM weekly_submission_picks WHERE submission_id=?",
+            (submission_id,),
+        )
+
+        for a in assignments:
+            model_pts = model_points[a["game_id"]]
+            submitted_pts = a["confidence_points"]
+            conn.execute("""
+                INSERT INTO weekly_submission_picks
+                    (submission_id, game_id, model_pick, submitted_pick,
+                     model_points, submitted_points, points_delta,
+                     win_probability, tier, market, is_overridden,
+                     override_reason)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                submission_id,
+                a["game_id"],
+                a["predicted_winner"],
+                a["predicted_winner"],
+                model_pts,
+                submitted_pts,
+                submitted_pts - model_pts,
+                a["win_probability"],
+                _tier(a["win_probability"]),
+                _market_text(a),
+                int(a.get("is_overridden") or 0),
+                a.get("override_reason"),
+            ))
+
+    submission_data = get_weekly_submission(db_path, season, week)
+    if submission_data is None:
+        raise RuntimeError("Submission save failed")
+    return submission_data
+
+
+def get_weekly_submission(db_path: str, season: int, week: int) -> dict | None:
+    with _conn(db_path) as conn:
+        submission = conn.execute("""
+            SELECT * FROM weekly_submissions WHERE season=? AND week=?
+        """, (season, week)).fetchone()
+        if submission is None:
+            return None
+        picks = conn.execute("""
+            SELECT sp.*, g.home_team, g.away_team
+            FROM weekly_submission_picks sp
+            JOIN games g ON sp.game_id = g.espn_id
+            WHERE sp.submission_id=?
+            ORDER BY sp.submitted_points DESC
+        """, (submission["submission_id"],)).fetchall()
+
+    result = dict(submission)
+    result["picks"] = [dict(p) for p in picks]
+    return result
 
 
 def insert_reranking(db_path: str, reranking: dict) -> None:

@@ -18,9 +18,33 @@ def test_schema_creates_all_tables():
         expected = {
             "games", "team_game_stats", "injury_reports", "depth_charts",
             "predictions", "weekly_assignments", "conversations",
-            "rerankings", "model_metrics", "family_picks", "game_odds",
+            "rerankings", "model_metrics", "game_odds",
+            "weekly_submissions", "weekly_submission_picks",
         }
         assert expected.issubset(tables)
+        assert "family_picks" not in tables
+    finally:
+        os.unlink(db_path)
+
+
+def test_schema_drops_legacy_family_picks():
+    import tempfile
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+        db_path = f.name
+    try:
+        conn = sqlite3.connect(db_path)
+        conn.execute("CREATE TABLE family_picks (pick_id INTEGER PRIMARY KEY)")
+        conn.commit()
+        conn.close()
+
+        create_schema(db_path)
+
+        conn = sqlite3.connect(db_path)
+        tables = {r[0] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()}
+        conn.close()
+        assert "family_picks" not in tables
     finally:
         os.unlink(db_path)
 
@@ -58,6 +82,97 @@ def test_get_existing_espn_ids(tmp_db):
         "attendance": None, "home_score": None, "away_score": None, "home_win": None,
     })
     assert "999" in get_existing_espn_ids(tmp_db)
+
+
+def test_create_weekly_submission_snapshots_model_vs_current(tmp_db):
+    from src.db.queries import (
+        create_weekly_submission, get_weekly_submission, insert_espn_game,
+        insert_game_odds, swap_confidence_points, upsert_weekly_assignment,
+    )
+
+    games = [
+        ("g1", "BAL", "CIN", 0.80, 2, -3.5, 44.5),
+        ("g2", "KC", "DEN", 0.65, 1, -6.5, 41.5),
+    ]
+    for espn_id, home, away, prob, pts, spread, total in games:
+        insert_espn_game(tmp_db, {
+            "espn_id": espn_id, "season": 2024, "week": 1, "game_type": "regular",
+            "home_team": home, "away_team": away, "home_espn_id": "1",
+            "away_espn_id": "2", "game_date": "2024-09-05T20:00Z",
+            "venue": "M", "is_indoor": 0, "is_neutral": 0,
+            "attendance": None, "home_score": None, "away_score": None,
+            "home_win": None,
+        })
+        insert_game_odds(tmp_db, {
+            "espn_id": espn_id, "home_spread": spread, "game_total": total,
+            "home_moneyline": None, "away_moneyline": None,
+        })
+        upsert_weekly_assignment(tmp_db, {
+            "season": 2024, "week": 1, "game_id": espn_id,
+            "predicted_winner": home, "confidence_points": pts,
+            "win_probability": prob, "is_uncertain": 0,
+            "is_overridden": 0, "override_reason": None,
+        })
+
+    swap_confidence_points(tmp_db, 2024, 1, "g2", 2, "manual bump")
+    submission = create_weekly_submission(tmp_db, 2024, 1, source="test")
+
+    assert submission["season"] == 2024
+    assert submission["week"] == 1
+    assert submission["source"] == "test"
+    picks = {p["game_id"]: p for p in submission["picks"]}
+    assert picks["g1"]["model_points"] == 2
+    assert picks["g1"]["submitted_points"] == 1
+    assert picks["g1"]["points_delta"] == -1
+    assert picks["g2"]["model_points"] == 1
+    assert picks["g2"]["submitted_points"] == 2
+    assert picks["g2"]["points_delta"] == 1
+    assert picks["g2"]["is_overridden"] == 1
+    assert picks["g2"]["override_reason"] == "manual bump"
+    assert picks["g1"]["market"] == "BAL -3.5  ·  O/U 44.5"
+    assert get_weekly_submission(tmp_db, 2024, 1)["submission_id"] == submission["submission_id"]
+
+
+def test_revert_assignment_to_model_restores_points(tmp_db):
+    from src.db.queries import (
+        get_weekly_assignments, insert_espn_game, revert_assignment_to_model,
+        swap_confidence_points, upsert_weekly_assignment,
+    )
+
+    games = [
+        ("g1", "BAL", "CIN", 0.80, 2),
+        ("g2", "KC", "DEN", 0.65, 1),
+    ]
+    for espn_id, home, away, prob, pts in games:
+        insert_espn_game(tmp_db, {
+            "espn_id": espn_id, "season": 2024, "week": 1, "game_type": "regular",
+            "home_team": home, "away_team": away, "home_espn_id": "1",
+            "away_espn_id": "2", "game_date": "2024-09-05T20:00Z",
+            "venue": "M", "is_indoor": 0, "is_neutral": 0,
+            "attendance": None, "home_score": None, "away_score": None,
+            "home_win": None,
+        })
+        upsert_weekly_assignment(tmp_db, {
+            "season": 2024, "week": 1, "game_id": espn_id,
+            "predicted_winner": home, "confidence_points": pts,
+            "win_probability": prob, "is_uncertain": 0,
+            "is_overridden": 0, "override_reason": None,
+        })
+
+    swap_confidence_points(tmp_db, 2024, 1, "g2", 2, "manual bump")
+    moved = {a["game_id"]: a for a in get_weekly_assignments(tmp_db, 2024, 1)}
+    assert moved["g2"]["confidence_points"] == 2
+    assert moved["g2"]["is_overridden"] == 1
+
+    result = revert_assignment_to_model(tmp_db, 2024, 1, "g2")
+
+    assert result["old_points"] == 2
+    assert result["model_points"] == 1
+    restored = {a["game_id"]: a for a in get_weekly_assignments(tmp_db, 2024, 1)}
+    assert restored["g1"]["confidence_points"] == 2
+    assert restored["g2"]["confidence_points"] == 1
+    assert restored["g1"]["is_overridden"] == 0
+    assert restored["g2"]["is_overridden"] == 0
 
 
 def test_insert_and_fetch_team_stats(tmp_db):
