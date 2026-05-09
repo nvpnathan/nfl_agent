@@ -111,3 +111,115 @@ def test_weather_impact_indoor_is_zero():
 def test_weather_impact_cold_wind_negative():
     impact = estimate_weather_impact(is_outdoor=True, temperature=20, wind_speed=25)
     assert impact < 0
+
+
+def test_insert_and_fetch_espn_game(tmp_db):
+    from src.db.queries import insert_espn_game, get_games_for_week
+    game = {
+        "espn_id": "401220225",
+        "season": 2024,
+        "week": 1,
+        "game_type": "regular",
+        "home_team": "BAL",
+        "away_team": "KC",
+        "home_espn_id": "33",
+        "away_espn_id": "12",
+        "game_date": "2024-09-05T20:00Z",
+        "venue": "M&T Bank Stadium",
+        "is_indoor": 0,
+        "is_neutral": 0,
+        "attendance": 71000,
+        "home_score": 27,
+        "away_score": 20,
+        "home_win": 1,
+    }
+    insert_espn_game(tmp_db, game)
+    games = get_games_for_week(tmp_db, 2024, 1)
+    assert len(games) == 1
+    assert games[0]["espn_id"] == "401220225"
+    assert games[0]["home_win"] == 1
+
+
+def test_get_existing_espn_ids(tmp_db):
+    from src.db.queries import insert_espn_game, get_existing_espn_ids
+    game = {
+        "espn_id": "999", "season": 2024, "week": 1, "game_type": "regular",
+        "home_team": "BAL", "away_team": "KC", "home_espn_id": "33",
+        "away_espn_id": "12", "game_date": "2024-09-05T20:00Z",
+        "venue": "X", "is_indoor": 0, "is_neutral": 0,
+        "attendance": None, "home_score": None, "away_score": None, "home_win": None,
+    }
+    insert_espn_game(tmp_db, game)
+    ids = get_existing_espn_ids(tmp_db)
+    assert "999" in ids
+
+
+def test_insert_and_fetch_team_stats(tmp_db):
+    from src.db.queries import insert_espn_game, insert_team_stats, get_team_box_stats
+    game = {
+        "espn_id": "401220225", "season": 2024, "week": 1, "game_type": "regular",
+        "home_team": "BAL", "away_team": "KC", "home_espn_id": "33",
+        "away_espn_id": "12", "game_date": "2024-09-05T20:00Z", "venue": "M",
+        "is_indoor": 0, "is_neutral": 0, "attendance": 71000,
+        "home_score": 27, "away_score": 20, "home_win": 1,
+    }
+    insert_espn_game(tmp_db, game)
+    stats = {
+        "espn_id": "401220225", "team": "BAL", "is_home": 1,
+        "total_yards": 350, "pass_yards": 220, "rush_yards": 130,
+        "turnovers": 1, "first_downs": 22, "third_down_att": 14,
+        "third_down_made": 7, "red_zone_att": 4, "red_zone_made": 3,
+        "possession_secs": 1920, "sacks_taken": 1,
+    }
+    insert_team_stats(tmp_db, stats)
+    rows = get_team_box_stats(tmp_db, "BAL", 2024, 2)
+    assert len(rows) == 1
+    assert rows[0]["total_yards"] == 350
+    assert rows[0]["turnovers"] == 1
+
+
+def test_get_team_results_returns_recent_games(tmp_db):
+    from src.db.queries import insert_espn_game, get_team_results
+    for i, (espn_id, week, home_score, away_score, home_win) in enumerate([
+        ("g1", 1, 27, 20, 1),
+        ("g2", 2, 14, 28, 0),
+        ("g3", 3, 35, 17, 1),
+    ]):
+        insert_espn_game(tmp_db, {
+            "espn_id": espn_id, "season": 2024, "week": week,
+            "game_type": "regular", "home_team": "BAL", "away_team": "KC",
+            "home_espn_id": "33", "away_espn_id": "12",
+            "game_date": f"2024-09-0{week + 4}T20:00Z", "venue": "M",
+            "is_indoor": 0, "is_neutral": 0, "attendance": None,
+            "home_score": home_score, "away_score": away_score, "home_win": home_win,
+        })
+    results = get_team_results(tmp_db, "BAL", 2024, before_week=4, n=4)
+    assert len(results) == 3
+    # Most recent first
+    assert results[0]["espn_id"] == "g3"
+
+
+def test_insert_and_fetch_injury(tmp_db):
+    from src.db.queries import insert_injury, get_injuries_for_week
+    injury = {
+        "season": 2024, "week": 5, "team": "KC",
+        "athlete_id": "3139477", "athlete_name": "Patrick Mahomes",
+        "position": "QB", "status": "Questionable", "is_qb": 1,
+    }
+    insert_injury(tmp_db, injury)
+    rows = get_injuries_for_week(tmp_db, "KC", 2024, 5)
+    assert len(rows) == 1
+    assert rows[0]["athlete_name"] == "Patrick Mahomes"
+    assert rows[0]["is_qb"] == 1
+
+
+def test_insert_and_fetch_depth_chart(tmp_db):
+    from src.db.queries import insert_depth_chart_entry, get_starting_qb
+    entry = {
+        "season": 2024, "week": 5, "team": "KC",
+        "athlete_id": "3139477", "athlete_name": "Patrick Mahomes", "rank": 1,
+    }
+    insert_depth_chart_entry(tmp_db, entry)
+    qb = get_starting_qb(tmp_db, "KC", 2024, 5)
+    assert qb is not None
+    assert qb["athlete_name"] == "Patrick Mahomes"
