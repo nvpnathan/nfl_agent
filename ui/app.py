@@ -3,22 +3,19 @@
 Tactical intelligence aesthetic. 2-column pick grid. All games on one screen.
 Run: uv run streamlit run ui/app.py
 """
-import sqlite3
-import subprocess
 import sys
-import yaml
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from urllib.parse import quote
 
-import html as _html
-
-import requests
 import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-API_BASE = "http://localhost:8000"
+from ui.styles import STYLES
+from ui.utils import (
+    _current_season, _api_get, _load_submission, _load_week, _load_odds,
+    _load_rerankings, _do_revert, _do_refresh, _model_point_map,
+    _review_table_html, swap_dialog, lock_dialog, render_game_card
+)
 
 st.set_page_config(
     page_title="NFL Pool",
@@ -29,739 +26,7 @@ st.set_page_config(
 )
 
 # ── CSS ───────────────────────────────────────────────────────────────────────
-st.markdown("""
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;1,400&display=swap');
-
-:root {
-  --bg:       #04060E;
-  --surf:     #0C1120;
-  --surf-hi:  #111D30;
-  --bdr:      rgba(255,255,255,0.06);
-  --bdr-hi:   rgba(255,255,255,0.13);
-  --lock:     #18E08C;
-  --lean:     #F0A800;
-  --toss:     #FF3050;
-  --up:       #22D3EE;
-  --dn:       #FB923C;
-  --text:     #CBD5E1;
-  --dim:      #475569;
-  --mono:     'IBM Plex Mono', monospace;
-  --disp:     'Syne', sans-serif;
-}
-
-/* ── global ── */
-.stApp { background: var(--bg) !important; }
-header[data-testid="stHeader"],
-.stApp > header,
-[data-testid="stDecoration"],
-[data-testid="stToolbar"],
-[data-testid="stStatusWidget"],
-#MainMenu { display: none !important; visibility: hidden !important; height: 0 !important; }
-section[data-testid="stMain"] > div { padding-top: 1.25rem; }
-section[data-testid="stMain"] { padding-top: 0 !important; }
-p, div, span, label { font-family: var(--mono) !important; }
-
-/* ── sidebar ── */
-[data-testid="stSidebar"] {
-  background: var(--surf) !important;
-  border-right: 1px solid var(--bdr) !important;
-}
-[data-testid="stSidebarContent"] { padding: 1.25rem 1rem; }
-[data-testid="stSidebar"] label { color: var(--dim) !important; font-size: 0.7rem !important; letter-spacing: 0.08em !important; text-transform: uppercase !important; }
-[data-testid="stSidebar"] input { background: var(--surf-hi) !important; border-color: var(--bdr-hi) !important; color: var(--text) !important; font-family: var(--mono) !important; }
-
-/* ── metrics ── */
-[data-testid="stMetricLabel"] span {
-  font-size: 0.6rem !important; letter-spacing: 0.12em !important;
-  text-transform: uppercase !important; color: var(--dim) !important;
-}
-[data-testid="stMetricValue"] {
-  font-family: var(--disp) !important; font-size: 1.9rem !important;
-  font-weight: 800 !important; color: var(--text) !important;
-}
-[data-testid="metric-container"] {
-  background: var(--surf) !important;
-  border: 1px solid var(--bdr) !important;
-  border-radius: 4px !important; padding: 0.65rem 0.9rem !important;
-}
-
-/* ── buttons — primary ── */
-[data-testid="baseButton-primary"] > button,
-button[kind="primary"] {
-  background: var(--lock) !important;
-  color: #020D07 !important;
-  font-family: var(--mono) !important; font-weight: 600 !important;
-  font-size: 0.68rem !important; letter-spacing: 0.1em !important;
-  text-transform: uppercase !important;
-  border: none !important; border-radius: 3px !important;
-}
-
-/* ── buttons — secondary (swap) ── */
-[data-testid="baseButton-secondary"] > button,
-button[kind="secondary"] {
-  background: var(--surf) !important;
-  color: var(--dim) !important;
-  border: 1px solid var(--bdr-hi) !important;
-  font-family: var(--mono) !important; font-size: 0.78rem !important;
-  letter-spacing: 0.09em !important; text-transform: uppercase !important;
-  border-radius: 4px !important;
-  min-height: 2rem !important;
-  width: 100% !important;
-}
-[data-testid="baseButton-secondary"] > button:hover,
-button[kind="secondary"]:hover {
-  color: var(--text) !important;
-  border-color: rgba(255,255,255,0.22) !important;
-}
-
-/* ── inputs in dialog ── */
-[data-testid="stSelectbox"] > div > div,
-[data-testid="stTextInput"] input {
-  background: var(--surf-hi) !important;
-  border-color: var(--bdr-hi) !important;
-  color: var(--text) !important;
-  font-family: var(--mono) !important; font-size: 0.8rem !important;
-}
-
-/* ── dividers ── */
-hr { border-color: var(--bdr) !important; opacity: 1 !important; margin: 0.75rem 0 !important; }
-
-/* ── game card ── */
-.gc {
-  background: var(--surf);
-  border: 1px solid var(--bdr);
-  border-left: 3px solid transparent;
-  border-radius: 4px;
-  position: relative; overflow: hidden;
-}
-.gc.lock { border-left-color: var(--lock); }
-.gc.lean { border-left-color: var(--lean); }
-.gc.toss { border-left-color: var(--toss); }
-.gc.changed {
-  border-color: rgba(34,211,238,0.2);
-  border-left-width: 3px;
-  box-shadow: 0 0 20px rgba(34,211,238,0.06);
-}
-.gc.lock.changed  { border-left-color: var(--lock); }
-.gc.lean.changed  { border-left-color: var(--lean); }
-.gc.toss.changed  { border-left-color: var(--toss); }
-
-.gc-inner { padding: 1rem 1.1rem 0.95rem 1rem; }
-
-/* pick-first card header */
-.gc-head {
-  display: flex; align-items: flex-start; justify-content: space-between;
-  gap: 1rem;
-}
-
-.pick-primary { min-width: 0; flex: 1; }
-.pick-kicker {
-  font-family: var(--mono); font-size: 0.75rem; font-weight: 700;
-  letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim);
-  margin-bottom: 0.22rem;
-}
-.pick-title {
-  display: flex; align-items: center; gap: 0.58rem; min-width: 0;
-  font-family: var(--disp); font-size: 2.55rem; line-height: 0.95;
-  font-weight: 800; letter-spacing: 0.02em; color: #E2E8F0;
-}
-.pick-title.lock { color: var(--lock); }
-.pick-title.lean { color: var(--lean); }
-.pick-title.toss { color: var(--toss); }
-.pick-logo {
-  width: 38px; height: 38px; border-radius: 50%; object-fit: cover;
-  background: var(--surf-hi); flex-shrink: 0;
-}
-.pick-name {
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.pick-subline {
-  font-family: var(--mono); font-size: 0.9rem; color: var(--dim);
-  margin-top: 0.28rem;
-}
-.pick-subline b { color: var(--text); font-weight: 600; }
-
-.pts-stack {
-  flex-shrink: 0; width: 4.5rem;
-  display: flex; flex-direction: column; gap: 0.45rem;
-}
-.pts-badge {
-  min-width: 4.5rem; text-align: center;
-  padding: 0.42rem 0.52rem; border-radius: 3px;
-  border: 1px solid rgba(255,255,255,0.08);
-  background: rgba(255,255,255,0.03);
-}
-.pts-stack .pts-badge { min-width: 0; }
-.pts-badge.lock { border-color: rgba(24,224,140,0.2); background: rgba(24,224,140,0.08); }
-.pts-badge.lean { border-color: rgba(240,168,0,0.2); background: rgba(240,168,0,0.08); }
-.pts-badge.toss { border-color: rgba(255,48,80,0.2); background: rgba(255,48,80,0.08); }
-.pts-num {
-  display: block; font-family: var(--disp); font-size: 1.65rem;
-  line-height: 0.95; font-weight: 800;
-}
-.pts-unit {
-  display: block; margin-top: 0.18rem;
-  font-family: var(--mono); font-size: 0.62rem; font-weight: 700;
-  letter-spacing: 0.12em; text-transform: uppercase; color: var(--dim);
-}
-.pts-badge.lock .pts-num { color: var(--lock); }
-.pts-badge.lean .pts-num { color: var(--lean); }
-.pts-badge.toss .pts-num { color: var(--toss); }
-
-.swap-card-btn {
-  display: flex; align-items: center; justify-content: center;
-  min-height: 2.1rem; border-radius: 3px;
-  border: 1px solid var(--bdr-hi);
-  background: rgba(255,255,255,0.02);
-  color: var(--dim) !important; text-decoration: none !important;
-  font-family: var(--mono); font-size: 0.9rem; font-weight: 700;
-}
-.swap-card-btn:hover {
-  color: var(--text) !important;
-  border-color: rgba(255,255,255,0.24);
-  background: rgba(255,255,255,0.04);
-}
-.undo-card-btn {
-  display: flex; align-items: center; justify-content: center;
-  min-height: 2.1rem; border-radius: 3px;
-  border: 1px solid rgba(251,146,60,0.24);
-  background: rgba(251,146,60,0.08);
-  color: var(--dn) !important; text-decoration: none !important;
-  font-family: var(--mono); font-size: 0.9rem; font-weight: 700;
-}
-.undo-card-btn:hover {
-  color: #FDBA74 !important;
-  border-color: rgba(251,146,60,0.42);
-  background: rgba(251,146,60,0.12);
-}
-
-.matchup {
-  font-family: var(--disp); font-size: 1.18rem; font-weight: 800;
-  color: #E2E8F0; white-space: nowrap; overflow: hidden;
-  text-overflow: ellipsis; letter-spacing: 0.02em;
-}
-
-.gmeta {
-  font-family: var(--mono); font-size: 0.78rem; color: var(--dim);
-  margin-top: 0.2rem; letter-spacing: 0.02em;
-}
-
-.tier-pill {
-  display: inline-block; font-family: var(--mono); font-size: 0.72rem;
-  font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase;
-  padding: 0.2rem 0.48rem; border-radius: 2px;
-}
-.tier-pill.lock { background: rgba(24,224,140,0.12); color: var(--lock); }
-.tier-pill.lean { background: rgba(240,168,0,0.12); color: var(--lean); }
-.tier-pill.toss { background: rgba(255,48,80,0.12); color: var(--toss); }
-
-.support-row {
-  display: flex; align-items: center; gap: 0.55rem; flex-wrap: wrap;
-  margin-top: 0.72rem; padding-top: 0.62rem;
-  border-top: 1px solid rgba(255,255,255,0.06);
-}
-.spread-line { font-family: var(--mono); font-size: 0.82rem; color: var(--dim); }
-
-/* prob bar */
-.prob-row { display: flex; align-items: center; gap: 0.65rem; margin: 0.72rem 0 0.5rem; }
-.prob-track { flex: 1; height: 4px; background: rgba(255,255,255,0.06); border-radius: 2px; overflow: hidden; }
-.prob-fill { height: 100%; border-radius: 1px; }
-.prob-fill.lock { background: var(--lock); }
-.prob-fill.lean { background: var(--lean); }
-.prob-fill.toss { background: var(--toss); }
-.prob-pct { font-family: var(--mono); font-size: 0.84rem; font-weight: 600; white-space: nowrap; }
-.prob-pct.lock { color: var(--lock); }
-.prob-pct.lean { color: var(--lean); }
-.prob-pct.toss { color: var(--toss); }
-
-/* reasoning */
-.rsn { font-family: var(--mono); font-size: 0.8rem; font-style: italic; color: #3D526A; line-height: 1.55; margin-top: 0.32rem; }
-
-/* badges */
-.badge-row { display: flex; gap: 0.4rem; margin-top: 0.52rem; flex-wrap: wrap; }
-.badge { font-family: var(--mono); font-size: 0.72rem; font-weight: 600; letter-spacing: 0.06em; padding: 0.18rem 0.48rem; border-radius: 2px; }
-.badge.up  { background: rgba(34,211,238,0.1); color: var(--up); }
-.badge.dn  { background: rgba(251,146,60,0.1); color: var(--dn); }
-.badge.ovr { background: rgba(255,255,255,0.05); color: var(--dim); }
-
-/* logos */
-.team-logo { width: 24px; height: 24px; border-radius: 50%; object-fit: cover; vertical-align: middle; margin-right: 0.35em; background: var(--surf-hi); flex-shrink: 0; }
-.matchup-row { display: flex; align-items: center; gap: 0.15rem; margin-top: 0.75rem; }
-.team-seg {
-  display: flex; align-items: center; white-space: nowrap;
-  padding: 0.12rem 0.24rem 0.12rem 0.12rem; border-radius: 3px;
-}
-.team-seg.picked.lock { background: rgba(24,224,140,0.1); }
-.team-seg.picked.lean { background: rgba(240,168,0,0.1); }
-.team-seg.picked.toss { background: rgba(255,48,80,0.1); }
-.team-seg.picked.lock .matchup { color: var(--lock); }
-.team-seg.picked.lean .matchup { color: var(--lean); }
-.team-seg.picked.toss .matchup { color: var(--toss); }
-.at-sep { color: var(--dim); font-family: var(--mono); font-size: 0.95rem; margin: 0 0.28rem; }
-
-/* header */
-.page-hdr { display: flex; align-items: baseline; gap: 0.75rem; margin-bottom: 0.1rem; }
-.page-title { font-family: var(--disp); font-size: 1.5rem; font-weight: 800; color: #E2E8F0; letter-spacing: 0.04em; text-transform: uppercase; }
-.page-dot { font-family: var(--mono); font-size: 0.65rem; color: var(--dim); letter-spacing: 0.08em; }
-.page-dot.live { color: rgba(24,224,140,0.7); }
-.page-dot.locked { color: rgba(240,168,0,0.7); }
-
-.review-wrap {
-  background: var(--surf);
-  border: 1px solid var(--bdr);
-  border-radius: 4px;
-  overflow-x: auto;
-  overflow-y: hidden;
-  margin: 0.25rem 0 1.1rem;
-}
-.review-head {
-  display: flex; align-items: baseline; justify-content: space-between;
-  gap: 1rem; padding: 0.7rem 0.85rem 0.55rem;
-  border-bottom: 1px solid var(--bdr);
-}
-.review-title {
-  font-family: var(--disp); font-size: 1rem; font-weight: 800;
-  letter-spacing: 0.06em; text-transform: uppercase; color: #E2E8F0;
-}
-.review-count {
-  font-family: var(--mono); font-size: 0.72rem; color: var(--dim);
-  letter-spacing: 0.08em; text-transform: uppercase;
-}
-.review-table {
-  width: 100%; min-width: 860px; border-collapse: collapse; table-layout: fixed;
-}
-.review-table th {
-  font-family: var(--mono); font-size: 0.64rem; font-weight: 700;
-  letter-spacing: 0.12em; text-transform: uppercase; color: var(--dim);
-  text-align: left; padding: 0.45rem 0.65rem;
-  border-bottom: 1px solid var(--bdr);
-}
-.review-table td {
-  font-family: var(--mono); font-size: 0.78rem; color: var(--text);
-  padding: 0.5rem 0.65rem; border-bottom: 1px solid rgba(255,255,255,0.04);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.review-table tr:last-child td { border-bottom: none; }
-.review-table tr.lock { box-shadow: inset 3px 0 0 var(--lock); }
-.review-table tr.lean { box-shadow: inset 3px 0 0 var(--lean); }
-.review-table tr.toss { box-shadow: inset 3px 0 0 var(--toss); }
-.compare-cell { display: flex; align-items: baseline; gap: 0.42rem; min-width: 0; }
-.compare-pts {
-  font-family: var(--disp); font-size: 1.08rem; line-height: 1;
-  font-weight: 800; color: #E2E8F0;
-}
-.compare-pick {
-  font-family: var(--mono); font-size: 0.76rem; font-weight: 700;
-  color: var(--text); overflow: hidden; text-overflow: ellipsis;
-}
-.compare-cell.lock .compare-pts,
-.compare-cell.lock .compare-pick { color: var(--lock); }
-.compare-cell.lean .compare-pts,
-.compare-cell.lean .compare-pick { color: var(--lean); }
-.compare-cell.toss .compare-pts,
-.compare-cell.toss .compare-pick { color: var(--toss); }
-.delta-pill {
-  display: inline-block; min-width: 3.6rem; text-align: center;
-  font-size: 0.68rem; font-weight: 800; letter-spacing: 0.08em;
-  text-transform: uppercase; padding: 0.18rem 0.34rem; border-radius: 2px;
-  background: rgba(255,255,255,0.05); color: var(--dim);
-}
-.delta-pill.up { background: rgba(34,211,238,0.1); color: var(--up); }
-.delta-pill.dn { background: rgba(251,146,60,0.1); color: var(--dn); }
-.review-muted { color: var(--dim) !important; }
-.review-note {
-  display: inline-block; font-size: 0.66rem; font-weight: 700;
-  letter-spacing: 0.08em; text-transform: uppercase;
-  padding: 0.16rem 0.34rem; border-radius: 2px;
-  background: rgba(255,255,255,0.05); color: var(--dim);
-}
-.review-note.up { background: rgba(34,211,238,0.1); color: var(--up); }
-.review-note.dn { background: rgba(251,146,60,0.1); color: var(--dn); }
-.review-note.ovr { background: rgba(255,255,255,0.08); color: var(--text); }
-.review-notes-cell { white-space: normal !important; overflow: visible !important; }
-.review-table .col-model { width: 8rem; }
-.review-table .col-current { width: 8rem; }
-.review-table .col-delta { width: 5rem; }
-.review-table .col-game { width: 9rem; }
-.review-table .col-win { width: 5rem; }
-.review-table .col-market { width: 12rem; }
-.review-table .col-notes { width: 8rem; }
-
-.locked-badge {
-  text-align: center; font-family: var(--mono); font-size: 0.65rem;
-  font-weight: 600; letter-spacing: 0.1em; color: var(--lean);
-  background: rgba(240,168,0,0.08); border: 1px solid rgba(240,168,0,0.2);
-  border-radius: 3px; padding: 0.45rem 0.75rem;
-}
-</style>
-""", unsafe_allow_html=True)
-
-
-# ── helpers ──────────────────────────────────────────────────────────────────
-
-def _current_season() -> int:
-    now = datetime.now(timezone.utc)
-    return now.year if now.month >= 8 else now.year - 1
-
-
-def _config() -> dict:
-    with open("config.yaml") as f:
-        return yaml.safe_load(f)
-
-
-def _api_get(path: str):
-    try:
-        r = requests.get(f"{API_BASE}{path}", timeout=5)
-        r.raise_for_status()
-        return r.json()
-    except Exception:
-        return None
-
-
-def _api_post(path: str, payload: dict):
-    try:
-        r = requests.post(f"{API_BASE}{path}", json=payload, timeout=10)
-        r.raise_for_status()
-        return r.json()
-    except Exception:
-        return None
-
-
-def _load_submission(season: int, week: int) -> dict | None:
-    data = _api_get(f"/week/{season}/{week}/submission")
-    if data is not None:
-        return data.get("submission")
-    try:
-        db = _config()["db"]["path"]
-        from src.db.queries import get_weekly_submission
-        return get_weekly_submission(db, season, week)
-    except Exception:
-        return None
-
-
-def _lock_week(season: int, week: int) -> dict | None:
-    result = _api_post(f"/week/{season}/{week}/lock", {"source": "streamlit"})
-    if result:
-        return result
-    try:
-        db = _config()["db"]["path"]
-        from src.db.schema import create_schema
-        from src.db.queries import create_weekly_submission
-        create_schema(db)
-        return create_weekly_submission(db, season, week, source="streamlit")
-    except Exception as e:
-        st.error(f"Lock failed: {e}")
-        return None
-
-
-def _load_week(season: int, week: int) -> dict | None:
-    data = _api_get(f"/week/{season}/{week}")
-    if data is None:
-        try:
-            db = _config()["db"]["path"]
-            from src.db.queries import get_weekly_assignments, get_games_for_week
-            data = {
-                "season": season, "week": week,
-                "assignments": get_weekly_assignments(db, season, week),
-                "games": get_games_for_week(db, season, week),
-            }
-        except Exception as e:
-            st.error(f"Could not load data: {e}")
-            return None
-    return data
-
-
-def _load_odds(season: int, week: int) -> dict[str, dict]:
-    try:
-        db = _config()["db"]["path"]
-        conn = sqlite3.connect(db)
-        conn.row_factory = sqlite3.Row
-        rows = conn.execute("""
-            SELECT go.espn_id, go.home_spread, go.game_total
-            FROM game_odds go JOIN games g USING(espn_id)
-            WHERE g.season=? AND g.week=?
-        """, (season, week)).fetchall()
-        conn.close()
-        return {r["espn_id"]: dict(r) for r in rows}
-    except Exception:
-        return {}
-
-
-def _load_rerankings(season: int, week: int) -> dict[str, dict]:
-    """Most recent reranking per game for this week."""
-    try:
-        db = _config()["db"]["path"]
-        conn = sqlite3.connect(db)
-        conn.row_factory = sqlite3.Row
-        rows = conn.execute("""
-            SELECT game_id, old_points, new_points, reason
-            FROM rerankings WHERE season=? AND week=?
-            ORDER BY created_at DESC
-        """, (season, week)).fetchall()
-        conn.close()
-        seen: dict[str, dict] = {}
-        for r in rows:
-            if r["game_id"] not in seen:
-                seen[r["game_id"]] = dict(r)
-        return seen
-    except Exception:
-        return {}
-
-
-def _do_swap(season: int, week: int, game_id: str, new_pts: int, reason: str) -> bool:
-    result = _api_post(f"/week/{season}/{week}/override", {
-        "game_id": game_id, "confidence_points": new_pts, "reason": reason or None,
-    })
-    if result:
-        if _load_submission(season, week):
-            _lock_week(season, week)
-        return True
-    try:
-        db = _config()["db"]["path"]
-        from src.db.queries import swap_confidence_points
-        swap_confidence_points(db, season, week, game_id, new_pts, reason or None)
-        if _load_submission(season, week):
-            _lock_week(season, week)
-        return True
-    except Exception as e:
-        st.error(f"Save failed: {e}")
-        return False
-
-
-def _do_revert(season: int, week: int, game_id: str) -> bool:
-    result = _api_post(f"/week/{season}/{week}/revert", {"game_id": game_id})
-    if result:
-        if _load_submission(season, week):
-            _lock_week(season, week)
-        return True
-    try:
-        db = _config()["db"]["path"]
-        from src.db.queries import revert_assignment_to_model
-        revert_assignment_to_model(db, season, week, game_id)
-        if _load_submission(season, week):
-            _lock_week(season, week)
-        return True
-    except Exception as e:
-        st.error(f"Undo failed: {e}")
-        return False
-
-
-def _format_time(game_date: str) -> str:
-    if not game_date:
-        return ""
-    try:
-        dt = datetime.fromisoformat(game_date.replace("Z", "+00:00"))
-        offset = -4 if 3 <= dt.month <= 11 else -5
-        local = dt + timedelta(hours=offset)
-        return local.strftime("%a %b %-d · %-I:%M %p ET")
-    except Exception:
-        return ""
-
-
-def _spread_text(espn_id: str, home: str, away: str, odds: dict) -> str:
-    o = odds.get(espn_id)
-    if not o:
-        return "—"
-    spread = o["home_spread"]
-    total = o["game_total"]
-    if spread < -0.1:
-        fav = f"{home} {spread:.1f}"
-    elif spread > 0.1:
-        fav = f"{away} -{spread:.1f}"
-    else:
-        fav = "EVEN"
-    return f"{fav}  ·  O/U {total:.1f}"
-
-
-def _tier(prob: float) -> str:
-    if prob >= 0.70:
-        return "lock"
-    if prob >= 0.62:
-        return "lean"
-    return "toss"
-
-
-def _tier_label(tier: str) -> str:
-    return {"lock": "LOCK", "lean": "LEAN", "toss": "TOSS-UP"}[tier]
-
-
-def _model_point_map(assignments: list) -> dict[str, int]:
-    model_order = sorted(assignments, key=lambda x: x["win_probability"], reverse=True)
-    return {
-        a["game_id"]: len(model_order) - i
-        for i, a in enumerate(model_order)
-    }
-
-
-def _review_table_html(assignments: list, games_by_id: dict,
-                       odds: dict, rerankings: dict) -> str:
-    rows = []
-    model_points = _model_point_map(assignments)
-    n_moved = 0
-    for a in assignments:
-        game_id = a["game_id"]
-        g = games_by_id.get(game_id, {})
-        home = g.get("home_team") or a.get("home_team", "?")
-        away = g.get("away_team") or a.get("away_team", "?")
-        winner = a["predicted_winner"]
-        prob = a["win_probability"]
-        pts = a["confidence_points"]
-        model_pts = model_points.get(game_id, pts)
-        delta = pts - model_pts
-        n_moved += int(delta != 0)
-        tier = _tier(prob)
-        spread = _spread_text(game_id, home, away, odds)
-        gtime = _format_time(g.get("game_date", ""))
-        rerank = rerankings.get(game_id)
-        overridden = bool(a.get("is_overridden"))
-
-        notes = []
-        if delta != 0:
-            direction = "up" if delta > 0 else "dn"
-            notes.append(
-                f'<span class="review-note {direction}">moved {direction}</span>'
-            )
-        if rerank:
-            delta_pts = rerank["new_points"] - rerank["old_points"]
-            direction = "up" if delta_pts >= 0 else "dn"
-            sign = "+" if delta_pts > 0 else ""
-            notes.append(
-                f'<span class="review-note {direction}">{sign}{delta_pts} pts</span>'
-            )
-        if overridden:
-            notes.append('<span class="review-note ovr">override</span>')
-        notes_html = " ".join(notes) if notes else '<span class="review-muted">-</span>'
-
-        delta_class = "up" if delta > 0 else "dn" if delta < 0 else ""
-        delta_label = f"{delta:+d}" if delta else "same"
-        title_parts = [p for p in (gtime, spread, a.get("override_reason") or "") if p]
-        row_title = _html.escape(" | ".join(title_parts))
-        rows.append(f"""
-      <tr class="{tier}" title="{row_title}">
-        <td>
-          <div class="compare-cell">
-            <span class="compare-pts">{model_pts}</span>
-            <span class="compare-pick">{_html.escape(winner)}</span>
-          </div>
-        </td>
-        <td>
-          <div class="compare-cell {tier}">
-            <span class="compare-pts">{pts}</span>
-            <span class="compare-pick">{_html.escape(winner)}</span>
-          </div>
-        </td>
-        <td><span class="delta-pill {delta_class}">{delta_label}</span></td>
-        <td>{_html.escape(away)} <span class="review-muted">@</span> {_html.escape(home)}</td>
-        <td>{int(prob * 100)}%</td>
-        <td>{_html.escape(spread)}</td>
-        <td class="review-notes-cell">{notes_html}</td>
-      </tr>
-""")
-
-    return f"""
-<div class="review-wrap">
-  <div class="review-head">
-    <div class="review-title">Model vs Current</div>
-    <div class="review-count">{n_moved} moved · {len(assignments)} picks</div>
-  </div>
-  <table class="review-table">
-    <thead>
-      <tr>
-        <th class="col-model">Model</th>
-        <th class="col-current">Current</th>
-        <th class="col-delta">Delta</th>
-        <th class="col-game">Game</th>
-        <th class="col-win">Win</th>
-        <th class="col-market">Market</th>
-        <th class="col-notes">Notes</th>
-      </tr>
-    </thead>
-    <tbody>
-{''.join(rows)}
-    </tbody>
-  </table>
-</div>
-"""
-
-
-def _do_refresh(season: int, week: int) -> None:
-    try:
-        subprocess.run(
-            [sys.executable, "scripts/refresh_weekly.py",
-             "--season", str(season), "--week", str(week)],
-            check=True, capture_output=True, text=True,
-        )
-        st.success("Refresh complete.")
-        st.rerun()
-    except subprocess.CalledProcessError as e:
-        st.error(f"Refresh failed:\n```\n{e.stderr[:600]}\n```")
-
-
-# ── dialogs ──────────────────────────────────────────────────────────────────
-
-@st.dialog("⇄  Swap Confidence Points")
-def swap_dialog(game_id: str, assignments: list, games_by_id: dict,
-                season: int, week: int) -> None:
-    a = next(x for x in assignments if x["game_id"] == game_id)
-    g = games_by_id.get(game_id, {})
-    home = g.get("home_team") or a.get("home_team", "?")
-    away = g.get("away_team") or a.get("away_team", "?")
-    curr_pts = a["confidence_points"]
-
-    st.markdown(f"**{away} @ {home}** — currently **{curr_pts} pts**")
-
-    pts_to_label: dict[int, str] = {}
-    for other in assignments:
-        if other["game_id"] == game_id:
-            continue
-        og = games_by_id.get(other["game_id"], {})
-        oh = og.get("home_team") or other.get("home_team", "?")
-        oa = og.get("away_team") or other.get("away_team", "?")
-        pts_to_label[other["confidence_points"]] = (
-            f"{other['confidence_points']} pts — {oa} @ {oh}"
-        )
-
-    all_pts = sorted(pts_to_label.keys(), reverse=True)
-    options = [pts_to_label[p] for p in all_pts]
-    selected = st.selectbox("Swap with", options)
-    new_pts = next(p for p, lbl in pts_to_label.items() if lbl == selected)
-
-    reason = st.text_input("Reason (optional)", placeholder="injury, gut feel…")
-
-    target_label = pts_to_label[new_pts].split("—")[1].strip()
-    st.caption(f"Swaps **{curr_pts} pts** ↔ **{new_pts} pts** ({target_label})")
-
-    c1, c2 = st.columns(2)
-    with c1:
-        if st.button("APPLY", type="primary", use_container_width=True,
-                     disabled=(new_pts == curr_pts)):
-            if _do_swap(season, week, game_id, new_pts, reason):
-                if "swap" in st.query_params:
-                    del st.query_params["swap"]
-                st.rerun()
-    with c2:
-        if st.button("CANCEL", use_container_width=True):
-            if "swap" in st.query_params:
-                del st.query_params["swap"]
-            st.rerun()
-
-
-@st.dialog("Lock In Picks")
-def lock_dialog(season: int, week: int) -> None:
-    st.markdown(f"Finalize your picks for **Week {week}, {season}**?")
-    st.caption("This saves a database snapshot of model vs current picks.")
-    c1, c2 = st.columns(2)
-    with c1:
-        if st.button("CONFIRM", type="primary", use_container_width=True):
-            if _lock_week(season, week):
-                if "locked" not in st.session_state:
-                    st.session_state.locked = set()
-                st.session_state.locked.add((season, week))
-                st.rerun()
-    with c2:
-        if st.button("CANCEL", use_container_width=True):
-            st.rerun()
+st.markdown(STYLES, unsafe_allow_html=True)
 
 
 # ── sidebar ──────────────────────────────────────────────────────────────────
@@ -775,14 +40,14 @@ with st.sidebar:
     )
     st.divider()
 
-    season = st.number_input("Season", min_value=2018,
-                              max_value=_current_season() + 1,
-                              value=_current_season(), step=1)
-    week = st.number_input("Week", min_value=1, max_value=22, value=1, step=1)
+    sidebar_season = st.number_input("Season", min_value=2018,
+                                     max_value=_current_season() + 1,
+                                     value=_current_season(), step=1, key="sb_season")
+    sidebar_week = st.number_input("Week", min_value=1, max_value=22, value=1, step=1, key="sb_week")
 
-    if st.button("↻  Refresh Week Data", type="primary", use_container_width=True):
+    if st.button("↻  Refresh Week Data", type="primary", use_container_width=True, key="sb_refresh"):
         with st.spinner("Fetching games, odds, injuries, weather…"):
-            _do_refresh(int(season), int(week))
+            _do_refresh(int(sidebar_season), int(sidebar_week))
 
     st.divider()
     api_ok = _api_get("/health") is not None
@@ -792,19 +57,63 @@ with st.sidebar:
     )
 
 
-# ── data ─────────────────────────────────────────────────────────────────────
+# ── data & header ────────────────────────────────────────────────────────────
 
-season, week = int(season), int(week)
+# Use sidebar values as defaults for main inputs if not interacting with main inputs
+season = int(st.session_state.get("main_season", sidebar_season))
+week = int(st.session_state.get("main_week", sidebar_week))
+
 data = _load_week(season, week)
 
-if not data or not data.get("assignments"):
+is_locked = False
+if data and data.get("assignments"):
+    submission = _load_submission(season, week)
+    is_locked = bool(submission) or (season, week) in st.session_state.get("locked", set())
+
+status_class = "locked" if is_locked else "live"
+status_text = "● LOCKED IN" if is_locked else "● LIVE"
+
+# Header Row 1: Controls
+c1, c2, c3, c4 = st.columns([1.0, 0.8, 6.2, 2.0], vertical_alignment="bottom")
+with c1:
+    season = st.number_input("Season", min_value=2018,
+                             max_value=_current_season() + 1,
+                             value=season, step=1, key="main_season")
+with c2:
+    week = st.number_input("Week", min_value=1, max_value=22, value=week,
+                           step=1, key="main_week")
+with c3:
+    st.empty() # Spacer
+with c4:
+    if st.button("↻ REFRESH WEEK DATA", type="primary", use_container_width=True,
+                 key="main_refresh"):
+        with st.spinner("Fetching games, odds, injuries, weather…"):
+            _do_refresh(int(season), int(week))
+
+# Header Row 2: Title & Lock
+t1, t2 = st.columns([8.0, 2.0], vertical_alignment="bottom")
+with t1:
     st.markdown(
-        f'<div class="page-hdr"><span class="page-title">WEEK {week} · {season}</span></div>',
+        f'<div class="topbar-left">'
+        f'<div class="topbar-title">WEEK {week} · {season}</div>'
+        f'<div class="topbar-status {status_class}">{status_text}</div>'
+        f'</div>',
         unsafe_allow_html=True,
     )
-    st.info("No picks yet. Click **↻ Refresh Week Data** in the sidebar.")
+with t2:
+    if not is_locked:
+        if st.button("LOCK IN WEEK ✓", type="primary",
+                     use_container_width=True, key="top_lock"):
+            lock_dialog(season, week)
+    else:
+        st.markdown('<div class="locked-badge">✓ PICKS LOCKED IN</div>',
+                    unsafe_allow_html=True)
+
+if not data or not data.get("assignments"):
+    st.info("No picks yet. Click **↻ Refresh Week Data** to fetch games.")
     st.stop()
 
+season, week = int(season), int(week)
 assignments = sorted(
     data["assignments"], key=lambda a: a["confidence_points"], reverse=True
 )
@@ -812,6 +121,7 @@ games_by_id = {g["espn_id"]: g for g in data.get("games", [])}
 odds = _load_odds(season, week)
 rerankings = _load_rerankings(season, week)
 submission = _load_submission(season, week)
+
 swap_game_id = st.query_params.get("swap")
 if isinstance(swap_game_id, list):
     swap_game_id = swap_game_id[0] if swap_game_id else None
@@ -825,29 +135,6 @@ if undo_game_id and any(a["game_id"] == undo_game_id for a in assignments):
     if _do_revert(season, week, undo_game_id):
         del st.query_params["undo"]
         st.rerun()
-
-# ── page header ──────────────────────────────────────────────────────────────
-
-is_locked = bool(submission) or (season, week) in st.session_state.get("locked", set())
-status_class = "locked" if is_locked else "live"
-status_text = "● LOCKED IN" if is_locked else "● LIVE"
-
-hdr_l, hdr_r = st.columns([4, 1])
-with hdr_l:
-    st.markdown(
-        f'<div class="page-hdr">'
-        f'<span class="page-title">WEEK {week} · {season}</span>'
-        f'<span class="page-dot {status_class}">{status_text}</span>'
-        f'</div>',
-        unsafe_allow_html=True,
-    )
-with hdr_r:
-    if is_locked:
-        st.markdown('<div class="locked-badge">✓ PICKS LOCKED IN</div>',
-                    unsafe_allow_html=True)
-    else:
-        if st.button("LOCK IN WEEK ✓", type="primary", use_container_width=True):
-            lock_dialog(season, week)
 
 # ── summary metrics ───────────────────────────────────────────────────────────
 
@@ -876,129 +163,8 @@ left_col, right_col = st.columns(2, gap="medium")
 
 for i, a in enumerate(assignments):
     col = left_col if i % 2 == 0 else right_col
-
-    game_id  = a["game_id"]
-    g        = games_by_id.get(game_id, {})
-    home     = g.get("home_team") or a.get("home_team", "?")
-    away     = g.get("away_team") or a.get("away_team", "?")
-    home_eid = g.get("home_espn_id") or ""
-    away_eid = g.get("away_espn_id") or ""
-    winner   = a["predicted_winner"]
-    loser    = away if winner == home else home
-    prob     = a["win_probability"]
-    pts      = a["confidence_points"]
-    is_indoor   = bool(g.get("is_indoor", 0))
-    overridden  = bool(a.get("is_overridden"))
-    ovr_reason  = a.get("override_reason") or ""
-
-    tier   = _tier(prob)
-    t_lbl  = _tier_label(tier)
-    gtime  = _format_time(g.get("game_date", ""))
-    spread = _spread_text(game_id, home, away, odds)
-
-    rerank     = rerankings.get(game_id)
-    is_changed = rerank is not None
-    delta_pts  = (rerank["new_points"] - rerank["old_points"]) if rerank else 0
-    rsn_text   = (rerank or {}).get("reason") or ovr_reason or ""
-
-    # meta line
-    meta_parts = []
-    if gtime:
-        meta_parts.append(gtime)
-    meta_parts.append("Indoor" if is_indoor else "Outdoor")
-    meta = "  ·  ".join(meta_parts)
-
-    # badges
-    badges_html = ""
-    if is_changed:
-        direction = "up" if delta_pts >= 0 else "dn"
-        arrow     = "↑" if delta_pts >= 0 else "↓"
-        sign      = "+" if delta_pts > 0 else ""
-        badges_html += (
-            f'<span class="badge {direction}">'
-            f'{arrow} {sign}{delta_pts} pts</span>'
-        )
-    if overridden:
-        badges_html += '<span class="badge ovr">&#9999; overridden</span>'
-
-    badge_row = f'<div class="badge-row">{badges_html}</div>' if badges_html else ""
-    rsn_html  = f'<div class="rsn">{_html.escape(rsn_text)}</div>' if rsn_text else ""
-
-    # escape all text content going into HTML
-    away_s   = _html.escape(away)
-    home_s   = _html.escape(home)
-    winner_s = _html.escape(winner)
-    loser_s  = _html.escape(loser)
-    meta_s   = _html.escape(meta)
-    spread_s = _html.escape(spread)
-    swap_href = f"?swap={quote(str(game_id), safe='')}"
-    undo_href = f"?undo={quote(str(game_id), safe='')}"
-    changed_cls = " changed" if is_changed else ""
-    prob_pct    = int(prob * 100)
-    model_pts = model_points.get(game_id, pts)
-    undo_btn = (
-        f'<a class="undo-card-btn" href="{undo_href}" '
-        f'title="Undo and restore model points ({model_pts})">↶</a>'
-        if pts != model_pts else ""
-    )
-    away_pick_cls = f" picked {tier}" if winner == away else ""
-    home_pick_cls = f" picked {tier}" if winner == home else ""
-    winner_eid = away_eid if winner == away else home_eid if winner == home else ""
-
-    away_logo = (
-        f'<img class="team-logo" src="https://a.espncdn.com/i/teamlogos/nfl/500/{away_eid}.png"'
-        f' onerror="this.style.display=\'none\'">' if away_eid else ""
-    )
-    home_logo = (
-        f'<img class="team-logo" src="https://a.espncdn.com/i/teamlogos/nfl/500/{home_eid}.png"'
-        f' onerror="this.style.display=\'none\'">' if home_eid else ""
-    )
-    pick_logo = (
-        f'<img class="pick-logo" src="https://a.espncdn.com/i/teamlogos/nfl/500/{winner_eid}.png"'
-        f' onerror="this.style.display=\'none\'">' if winner_eid else ""
-    )
-
-    card = f"""
-<div class="gc {tier}{changed_cls}">
-  <div class="gc-inner">
-    <div class="gc-head">
-      <div class="pick-primary">
-        <div class="pick-kicker">Pick</div>
-        <div class="pick-title {tier}">
-          {pick_logo}<span class="pick-name">{winner_s}</span>
-        </div>
-        <div class="pick-subline">over <b>{loser_s}</b></div>
-      </div>
-      <div class="pts-stack">
-        <div class="pts-badge {tier}">
-          <span class="pts-num">{pts}</span>
-          <span class="pts-unit">pts</span>
-        </div>
-        <a class="swap-card-btn" href="{swap_href}" title="Swap confidence points">⇄</a>
-        {undo_btn}
-      </div>
-    </div>
-    <div class="matchup-row">
-      <span class="team-seg{away_pick_cls}">{away_logo}<span class="matchup">{away_s}</span></span>
-      <span class="at-sep">@</span>
-      <span class="team-seg{home_pick_cls}">{home_logo}<span class="matchup">{home_s}</span></span>
-    </div>
-    <div class="gmeta">{meta_s}</div>
-    <div class="support-row">
-      <span class="tier-pill {tier}">{t_lbl}</span>
-      <span class="spread-line">{spread_s}</span>
-    </div>
-    <div class="prob-row">
-      <div class="prob-track">
-        <div class="prob-fill {tier}" style="width:{prob_pct}%"></div>
-      </div>
-      <span class="prob-pct {tier}">{prob_pct}%</span>
-    </div>
-    {rsn_html}
-    {badge_row}
-  </div>
-</div>
-"""
-
+    game_id = a["game_id"]
+    g = games_by_id.get(game_id, {})
+    
     with col:
-        st.html(card)
+        st.html(render_game_card(a, g, odds, rerankings, model_points))
