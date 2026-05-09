@@ -18,7 +18,7 @@ def test_schema_creates_all_tables():
         expected = {
             "games", "team_game_stats", "injury_reports", "depth_charts",
             "predictions", "weekly_assignments", "conversations",
-            "rerankings", "model_metrics", "family_picks",
+            "rerankings", "model_metrics", "family_picks", "game_odds",
         }
         assert expected.issubset(tables)
     finally:
