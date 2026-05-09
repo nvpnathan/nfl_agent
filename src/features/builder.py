@@ -12,9 +12,13 @@ FEATURE_COLS = [
     "home_turnover_diff_4wk", "away_turnover_diff_4wk",
     "home_total_yards_4wk", "away_total_yards_4wk",
     "home_third_down_pct_4wk", "away_third_down_pct_4wk",
+    "home_red_zone_pct_4wk", "away_red_zone_pct_4wk",
+    "home_pass_yards_4wk", "away_pass_yards_4wk",
+    "home_rush_yards_4wk", "away_rush_yards_4wk",
+    "home_sacks_taken_4wk", "away_sacks_taken_4wk",
     "home_qb_active", "away_qb_active",
     "home_key_injuries", "away_key_injuries",
-    "is_indoor", "is_neutral",
+    "is_indoor", "is_neutral", "is_divisional",
     "temperature", "wind_speed",
     "home_sos", "away_sos",
     "is_playoff",
@@ -24,23 +28,49 @@ PLAYOFF_TYPES = {"wildcard", "divisional", "conference", "superbowl"}
 OUT_STATUSES = {"Out", "Doubtful", "IR", "PUP-R"}
 KEY_POSITIONS = {"QB", "RB", "WR", "TE", "OT", "OG", "C", "DE", "DT", "LB", "CB", "S"}
 
+DIVISIONS = {
+    "BUF": "AFC East", "MIA": "AFC East", "NE": "AFC East", "NYJ": "AFC East",
+    "BAL": "AFC North", "CIN": "AFC North", "CLE": "AFC North", "PIT": "AFC North",
+    "HOU": "AFC South", "IND": "AFC South", "JAX": "AFC South", "TEN": "AFC South",
+    "DEN": "AFC West", "KC": "AFC West", "LV": "AFC West", "LAC": "AFC West",
+    "DAL": "NFC East", "NYG": "NFC East", "PHI": "NFC East", "WSH": "NFC East",
+    "CHI": "NFC North", "DET": "NFC North", "GB": "NFC North", "MIN": "NFC North",
+    "ATL": "NFC South", "CAR": "NFC South", "NO": "NFC South", "TB": "NFC South",
+    "ARI": "NFC West", "LAR": "NFC West", "SF": "NFC West", "SEA": "NFC West",
+}
+
 
 def _box_features(db_path: str, team: str, season: int, week: int) -> dict:
     rows = get_team_box_stats(db_path, team, season, week, n=4)
     if not rows:
-        return {"turnover_diff": 0.0, "total_yards": 0.0, "third_down_pct": 0.35}
+        return {
+            "turnover_diff": 0.0, "total_yards": 0.0, "third_down_pct": 0.35,
+            "red_zone_pct": 0.55, "pass_yards": 180.0, "rush_yards": 110.0,
+            "sacks_taken": 2.5,
+        }
     turnover_diffs, yards, third_pcts = [], [], []
+    red_zone_pcts, pass_yards_list, rush_yards_list, sacks_list = [], [], [], []
     for r in rows:
         turnover_diffs.append(-(r.get("turnovers") or 0))
         yards.append(r.get("total_yards") or 0)
         att = r.get("third_down_att") or 1
         made = r.get("third_down_made") or 0
         third_pcts.append(made / att)
+        rz_att = r.get("red_zone_att") or 1
+        rz_made = r.get("red_zone_made") or 0
+        red_zone_pcts.append(rz_made / rz_att)
+        pass_yards_list.append(r.get("pass_yards") or 0)
+        rush_yards_list.append(r.get("rush_yards") or 0)
+        sacks_list.append(r.get("sacks_taken") or 0)
     n = len(rows)
     return {
         "turnover_diff": sum(turnover_diffs) / n,
         "total_yards": sum(yards) / n,
         "third_down_pct": sum(third_pcts) / n,
+        "red_zone_pct": sum(red_zone_pcts) / n,
+        "pass_yards": sum(pass_yards_list) / n,
+        "rush_yards": sum(rush_yards_list) / n,
+        "sacks_taken": sum(sacks_list) / n,
     }
 
 
@@ -113,12 +143,21 @@ def build_features_for_game(
         "away_total_yards_4wk": away_box["total_yards"],
         "home_third_down_pct_4wk": home_box["third_down_pct"],
         "away_third_down_pct_4wk": away_box["third_down_pct"],
+        "home_red_zone_pct_4wk": home_box["red_zone_pct"],
+        "away_red_zone_pct_4wk": away_box["red_zone_pct"],
+        "home_pass_yards_4wk": home_box["pass_yards"],
+        "away_pass_yards_4wk": away_box["pass_yards"],
+        "home_rush_yards_4wk": home_box["rush_yards"],
+        "away_rush_yards_4wk": away_box["rush_yards"],
+        "home_sacks_taken_4wk": home_box["sacks_taken"],
+        "away_sacks_taken_4wk": away_box["sacks_taken"],
         "home_qb_active": home_inj["qb_active"],
         "away_qb_active": away_inj["qb_active"],
         "home_key_injuries": home_inj["key_injuries"],
         "away_key_injuries": away_inj["key_injuries"],
         "is_indoor": is_indoor,
         "is_neutral": int(game.get("is_neutral", 0)),
+        "is_divisional": int(DIVISIONS.get(home) == DIVISIONS.get(away) and DIVISIONS.get(home) is not None),
         "temperature": temperature,
         "wind_speed": wind_speed,
         "home_sos": home_sos,

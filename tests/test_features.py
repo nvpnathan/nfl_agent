@@ -44,7 +44,7 @@ def db_with_history(tmp_path):
 
 
 def test_feature_cols_count():
-    assert len(FEATURE_COLS) == 28
+    assert len(FEATURE_COLS) == 37
 
 
 def test_feature_cols_has_new_espn_features():
@@ -63,6 +63,15 @@ def test_feature_cols_has_new_espn_features():
     assert "is_neutral" in FEATURE_COLS
     assert "home_home_winpct" in FEATURE_COLS
     assert "away_road_winpct" in FEATURE_COLS
+    assert "home_red_zone_pct_4wk" in FEATURE_COLS
+    assert "away_red_zone_pct_4wk" in FEATURE_COLS
+    assert "home_pass_yards_4wk" in FEATURE_COLS
+    assert "away_pass_yards_4wk" in FEATURE_COLS
+    assert "home_rush_yards_4wk" in FEATURE_COLS
+    assert "away_rush_yards_4wk" in FEATURE_COLS
+    assert "home_sacks_taken_4wk" in FEATURE_COLS
+    assert "away_sacks_taken_4wk" in FEATURE_COLS
+    assert "is_divisional" in FEATURE_COLS
 
 
 def test_feature_cols_dropped_old_keys():
@@ -117,6 +126,45 @@ def test_build_features_spread_and_total_in_output(db_with_history):
     features = build_features_for_game(game, db_with_history, home_spread=-6.5, game_total=44.0)
     assert features["home_spread"] == -6.5
     assert features["game_total"] == 44.0
+
+
+def test_build_features_divisional_flag_set(db_with_history):
+    # BAL and PIT are both AFC North — should be divisional
+    game = {
+        "espn_id": "g3", "season": 2024, "week": 3,
+        "game_type": "regular", "home_team": "BAL", "away_team": "PIT",
+        "is_indoor": 0, "is_neutral": 0,
+    }
+    features = build_features_for_game(game, db_with_history, home_spread=-3.0, game_total=45.5)
+    assert features["is_divisional"] == 1
+
+
+def test_build_features_divisional_flag_clear(db_with_history):
+    # BAL (AFC North) vs KC (AFC West) — not divisional
+    game = {
+        "espn_id": "g3", "season": 2024, "week": 3,
+        "game_type": "regular", "home_team": "BAL", "away_team": "KC",
+        "is_indoor": 0, "is_neutral": 0,
+    }
+    features = build_features_for_game(game, db_with_history, home_spread=-3.0, game_total=45.5)
+    assert features["is_divisional"] == 0
+
+
+def test_build_features_box_stats_extended(db_with_history):
+    game = {
+        "espn_id": "g3", "season": 2024, "week": 3,
+        "game_type": "regular", "home_team": "BAL", "away_team": "PIT",
+        "is_indoor": 0, "is_neutral": 0,
+    }
+    features = build_features_for_game(game, db_with_history, home_spread=-3.0, game_total=45.5)
+    # BAL had pass_yards=200 in both games → avg 200
+    assert features["home_pass_yards_4wk"] == pytest.approx(200.0)
+    # BAL had rush_yards=100 in both games → avg 100
+    assert features["home_rush_yards_4wk"] == pytest.approx(100.0)
+    # BAL had sacks_taken=2 in both games → avg 2
+    assert features["home_sacks_taken_4wk"] == pytest.approx(2.0)
+    # BAL had red_zone: 2/3 both games → avg 0.667
+    assert features["home_red_zone_pct_4wk"] == pytest.approx(2/3, rel=1e-3)
 
 
 def test_build_features_qb_active_defaults_to_1(db_with_history):
