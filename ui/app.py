@@ -102,10 +102,10 @@ button[kind="secondary"] {
   background: var(--surf) !important;
   color: var(--dim) !important;
   border: 1px solid var(--bdr-hi) !important;
-  font-family: var(--mono) !important; font-size: 0.63rem !important;
+  font-family: var(--mono) !important; font-size: 0.78rem !important;
   letter-spacing: 0.09em !important; text-transform: uppercase !important;
-  border-radius: 0 0 4px 4px !important;
-  border-top: none !important; margin-top: 0 !important;
+  border-radius: 4px !important;
+  min-height: 2rem !important;
   width: 100% !important;
 }
 [data-testid="baseButton-secondary"] > button:hover,
@@ -131,8 +131,7 @@ hr { border-color: var(--bdr) !important; opacity: 1 !important; margin: 0.75rem
   background: var(--surf);
   border: 1px solid var(--bdr);
   border-left: 3px solid transparent;
-  border-radius: 4px 4px 0 0;
-  border-bottom: none;
+  border-radius: 4px;
   position: relative; overflow: hidden;
 }
 .gc.lock { border-left-color: var(--lock); }
@@ -147,73 +146,126 @@ hr { border-color: var(--bdr) !important; opacity: 1 !important; margin: 0.75rem
 .gc.lean.changed  { border-left-color: var(--lean); }
 .gc.toss.changed  { border-left-color: var(--toss); }
 
-.gc-inner { padding: 0.85rem 1rem 0.8rem 0.85rem; }
+.gc-inner { padding: 1rem 1.1rem 0.95rem 1rem; }
 
-/* top row */
-.gc-top { display: flex; gap: 0.75rem; align-items: flex-start; }
-
-.pts {
-  font-family: var(--disp); font-size: 2.4rem; font-weight: 800;
-  line-height: 1; min-width: 2.6rem; text-align: center; padding-top: 0.05rem;
-  flex-shrink: 0;
+/* pick-first card header */
+.gc-head {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 1rem;
 }
-.pts.lock { color: var(--lock); }
-.pts.lean { color: var(--lean); }
-.pts.toss { color: var(--toss); }
 
-.gc-info { flex: 1; min-width: 0; }
+.pick-primary { min-width: 0; flex: 1; }
+.pick-kicker {
+  font-family: var(--mono); font-size: 0.75rem; font-weight: 700;
+  letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim);
+  margin-bottom: 0.22rem;
+}
+.pick-title {
+  display: flex; align-items: center; gap: 0.58rem; min-width: 0;
+  font-family: var(--disp); font-size: 2.55rem; line-height: 0.95;
+  font-weight: 800; letter-spacing: 0.02em; color: #E2E8F0;
+}
+.pick-title.lock { color: var(--lock); }
+.pick-title.lean { color: var(--lean); }
+.pick-title.toss { color: var(--toss); }
+.pick-logo {
+  width: 38px; height: 38px; border-radius: 50%; object-fit: cover;
+  background: var(--surf-hi); flex-shrink: 0;
+}
+.pick-name {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.pick-subline {
+  font-family: var(--mono); font-size: 0.9rem; color: var(--dim);
+  margin-top: 0.28rem;
+}
+.pick-subline b { color: var(--text); font-weight: 600; }
+
+.pts-badge {
+  flex-shrink: 0; min-width: 4.5rem; text-align: center;
+  padding: 0.42rem 0.52rem; border-radius: 3px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.03);
+}
+.pts-badge.lock { border-color: rgba(24,224,140,0.2); background: rgba(24,224,140,0.08); }
+.pts-badge.lean { border-color: rgba(240,168,0,0.2); background: rgba(240,168,0,0.08); }
+.pts-badge.toss { border-color: rgba(255,48,80,0.2); background: rgba(255,48,80,0.08); }
+.pts-num {
+  display: block; font-family: var(--disp); font-size: 1.65rem;
+  line-height: 0.95; font-weight: 800;
+}
+.pts-unit {
+  display: block; margin-top: 0.18rem;
+  font-family: var(--mono); font-size: 0.62rem; font-weight: 700;
+  letter-spacing: 0.12em; text-transform: uppercase; color: var(--dim);
+}
+.pts-badge.lock .pts-num { color: var(--lock); }
+.pts-badge.lean .pts-num { color: var(--lean); }
+.pts-badge.toss .pts-num { color: var(--toss); }
 
 .matchup {
-  font-family: var(--disp); font-size: 1.05rem; font-weight: 800;
+  font-family: var(--disp); font-size: 1.18rem; font-weight: 800;
   color: #E2E8F0; white-space: nowrap; overflow: hidden;
   text-overflow: ellipsis; letter-spacing: 0.02em;
 }
 
 .gmeta {
-  font-family: var(--mono); font-size: 0.6rem; color: var(--dim);
-  margin-top: 0.1rem; letter-spacing: 0.02em;
+  font-family: var(--mono); font-size: 0.78rem; color: var(--dim);
+  margin-top: 0.2rem; letter-spacing: 0.02em;
 }
 
 .tier-pill {
-  display: inline-block; font-family: var(--mono); font-size: 0.56rem;
+  display: inline-block; font-family: var(--mono); font-size: 0.72rem;
   font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase;
-  padding: 0.15rem 0.38rem; border-radius: 2px; margin-top: 0.2rem;
+  padding: 0.2rem 0.48rem; border-radius: 2px;
 }
 .tier-pill.lock { background: rgba(24,224,140,0.12); color: var(--lock); }
 .tier-pill.lean { background: rgba(240,168,0,0.12); color: var(--lean); }
 .tier-pill.toss { background: rgba(255,48,80,0.12); color: var(--toss); }
 
+.support-row {
+  display: flex; align-items: center; gap: 0.55rem; flex-wrap: wrap;
+  margin-top: 0.72rem; padding-top: 0.62rem;
+  border-top: 1px solid rgba(255,255,255,0.06);
+}
+.spread-line { font-family: var(--mono); font-size: 0.82rem; color: var(--dim); }
+
 /* prob bar */
-.prob-row { display: flex; align-items: center; gap: 0.5rem; margin: 0.55rem 0 0.38rem; }
-.prob-track { flex: 1; height: 2px; background: rgba(255,255,255,0.06); border-radius: 1px; overflow: hidden; }
+.prob-row { display: flex; align-items: center; gap: 0.65rem; margin: 0.72rem 0 0.5rem; }
+.prob-track { flex: 1; height: 4px; background: rgba(255,255,255,0.06); border-radius: 2px; overflow: hidden; }
 .prob-fill { height: 100%; border-radius: 1px; }
 .prob-fill.lock { background: var(--lock); }
 .prob-fill.lean { background: var(--lean); }
 .prob-fill.toss { background: var(--toss); }
-.prob-pct { font-family: var(--mono); font-size: 0.65rem; font-weight: 600; white-space: nowrap; }
+.prob-pct { font-family: var(--mono); font-size: 0.84rem; font-weight: 600; white-space: nowrap; }
 .prob-pct.lock { color: var(--lock); }
 .prob-pct.lean { color: var(--lean); }
 .prob-pct.toss { color: var(--toss); }
 
-/* pick + spread */
-.pick-row { font-family: var(--mono); font-size: 0.67rem; color: var(--dim); margin-bottom: 0.28rem; }
-.pick-row b { color: var(--text); font-weight: 500; }
-
 /* reasoning */
-.rsn { font-family: var(--mono); font-size: 0.63rem; font-style: italic; color: #3D526A; line-height: 1.55; margin-top: 0.22rem; }
+.rsn { font-family: var(--mono); font-size: 0.8rem; font-style: italic; color: #3D526A; line-height: 1.55; margin-top: 0.32rem; }
 
 /* badges */
-.badge-row { display: flex; gap: 0.3rem; margin-top: 0.38rem; flex-wrap: wrap; }
-.badge { font-family: var(--mono); font-size: 0.56rem; font-weight: 600; letter-spacing: 0.06em; padding: 0.14rem 0.38rem; border-radius: 2px; }
+.badge-row { display: flex; gap: 0.4rem; margin-top: 0.52rem; flex-wrap: wrap; }
+.badge { font-family: var(--mono); font-size: 0.72rem; font-weight: 600; letter-spacing: 0.06em; padding: 0.18rem 0.48rem; border-radius: 2px; }
 .badge.up  { background: rgba(34,211,238,0.1); color: var(--up); }
 .badge.dn  { background: rgba(251,146,60,0.1); color: var(--dn); }
 .badge.ovr { background: rgba(255,255,255,0.05); color: var(--dim); }
 
 /* logos */
-.team-logo { width: 22px; height: 22px; border-radius: 50%; object-fit: cover; vertical-align: middle; margin-right: 0.3em; background: var(--surf-hi); flex-shrink: 0; }
-.matchup-row { display: flex; align-items: center; gap: 0.15rem; }
-.team-seg { display: flex; align-items: center; white-space: nowrap; }
-.at-sep { color: var(--dim); font-family: var(--mono); font-size: 0.75rem; margin: 0 0.25rem; }
+.team-logo { width: 24px; height: 24px; border-radius: 50%; object-fit: cover; vertical-align: middle; margin-right: 0.35em; background: var(--surf-hi); flex-shrink: 0; }
+.matchup-row { display: flex; align-items: center; gap: 0.15rem; margin-top: 0.75rem; }
+.team-seg {
+  display: flex; align-items: center; white-space: nowrap;
+  padding: 0.12rem 0.24rem 0.12rem 0.12rem; border-radius: 3px;
+}
+.team-seg.picked.lock { background: rgba(24,224,140,0.1); }
+.team-seg.picked.lean { background: rgba(240,168,0,0.1); }
+.team-seg.picked.toss { background: rgba(255,48,80,0.1); }
+.team-seg.picked.lock .matchup { color: var(--lock); }
+.team-seg.picked.lean .matchup { color: var(--lean); }
+.team-seg.picked.toss .matchup { color: var(--toss); }
+.at-sep { color: var(--dim); font-family: var(--mono); font-size: 0.95rem; margin: 0 0.28rem; }
 
 /* header */
 .page-hdr { display: flex; align-items: baseline; gap: 0.75rem; margin-bottom: 0.1rem; }
@@ -594,6 +646,9 @@ for i, a in enumerate(assignments):
     spread_s = _html.escape(spread)
     changed_cls = " changed" if is_changed else ""
     prob_pct    = int(prob * 100)
+    away_pick_cls = f" picked {tier}" if winner == away else ""
+    home_pick_cls = f" picked {tier}" if winner == home else ""
+    winner_eid = away_eid if winner == away else home_eid if winner == home else ""
 
     away_logo = (
         f'<img class="team-logo" src="https://a.espncdn.com/i/teamlogos/nfl/500/{away_eid}.png"'
@@ -603,21 +658,36 @@ for i, a in enumerate(assignments):
         f'<img class="team-logo" src="https://a.espncdn.com/i/teamlogos/nfl/500/{home_eid}.png"'
         f' onerror="this.style.display=\'none\'">' if home_eid else ""
     )
+    pick_logo = (
+        f'<img class="pick-logo" src="https://a.espncdn.com/i/teamlogos/nfl/500/{winner_eid}.png"'
+        f' onerror="this.style.display=\'none\'">' if winner_eid else ""
+    )
 
     card = f"""
 <div class="gc {tier}{changed_cls}">
   <div class="gc-inner">
-    <div class="gc-top">
-      <div class="pts {tier}">{pts}</div>
-      <div class="gc-info">
-        <div class="matchup-row">
-          <span class="team-seg">{away_logo}<span class="matchup">{away_s}</span></span>
-          <span class="at-sep">@</span>
-          <span class="team-seg">{home_logo}<span class="matchup">{home_s}</span></span>
+    <div class="gc-head">
+      <div class="pick-primary">
+        <div class="pick-kicker">Pick</div>
+        <div class="pick-title {tier}">
+          {pick_logo}<span class="pick-name">{winner_s}</span>
         </div>
-        <div class="gmeta">{meta_s}</div>
-        <span class="tier-pill {tier}">{t_lbl}</span>
+        <div class="pick-subline">over <b>{loser_s}</b></div>
       </div>
+      <div class="pts-badge {tier}">
+        <span class="pts-num">{pts}</span>
+        <span class="pts-unit">pts</span>
+      </div>
+    </div>
+    <div class="matchup-row">
+      <span class="team-seg{away_pick_cls}">{away_logo}<span class="matchup">{away_s}</span></span>
+      <span class="at-sep">@</span>
+      <span class="team-seg{home_pick_cls}">{home_logo}<span class="matchup">{home_s}</span></span>
+    </div>
+    <div class="gmeta">{meta_s}</div>
+    <div class="support-row">
+      <span class="tier-pill {tier}">{t_lbl}</span>
+      <span class="spread-line">{spread_s}</span>
     </div>
     <div class="prob-row">
       <div class="prob-track">
@@ -625,7 +695,6 @@ for i, a in enumerate(assignments):
       </div>
       <span class="prob-pct {tier}">{prob_pct}%</span>
     </div>
-    <div class="pick-row"><b>{winner_s}</b> over {loser_s} &nbsp;·&nbsp; {spread_s}</div>
     {rsn_html}
     {badge_row}
   </div>
@@ -633,7 +702,9 @@ for i, a in enumerate(assignments):
 """
 
     with col:
-        st.markdown(card, unsafe_allow_html=True)
-        if st.button("⇄  swap points", key=f"swap_{game_id}",
-                     use_container_width=True):
-            swap_dialog(game_id, assignments, games_by_id, season, week)
+        st.html(card)
+        _, swap_col = st.columns([0.86, 0.14])
+        with swap_col:
+            if st.button("⇄", key=f"swap_{game_id}", help="Swap confidence points",
+                         use_container_width=True):
+                swap_dialog(game_id, assignments, games_by_id, season, week)
