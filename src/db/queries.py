@@ -271,21 +271,21 @@ def swap_confidence_points(db_path: str, season: int, week: int,
     )
 
     with _conn(db_path) as conn:
-        # Give displaced game the old points
+        # Give displaced game the old points and its original prediction back
         if displaced:
             conn.execute("""
                 UPDATE weekly_assignments
-                SET confidence_points=?, is_overridden=1, updated_at=datetime('now')
+                SET confidence_points=?, predicted_winner=?, is_overridden=1, updated_at=datetime('now')
                 WHERE season=? AND week=? AND game_id=?
-            """, (old_points, season, week, displaced["game_id"]))
+            """, (old_points, displaced["predicted_winner"], season, week, displaced["game_id"]))
 
-        # Update target game
+        # Update target game with new points and the displaced game's prediction
         conn.execute("""
             UPDATE weekly_assignments
-            SET confidence_points=?, is_overridden=1, override_reason=?, updated_at=datetime('now')
+            SET confidence_points=?, predicted_winner=?, is_overridden=1, override_reason=?, updated_at=datetime('now')
             WHERE season=? AND week=? AND game_id=?
-        """, (new_points, reason, season, week, game_id))
-        _normalize_weekly_overrides(conn, season, week)
+        """, (new_points, displaced["predicted_winner"] if displaced else target["predicted_winner"],
+              reason, season, week, game_id))
 
     return displaced["game_id"] if displaced else None, old_points
 
@@ -384,6 +384,11 @@ def create_weekly_submission(db_path: str, season: int, week: int,
             for i, a in enumerate(model_order)
         }
 
+        model_picks = {r["game_id"]: r["predicted_winner"] for r in conn.execute("""
+            SELECT game_id, predicted_winner FROM predictions
+            WHERE season=? AND week=?
+        """, (season, week)).fetchall()}
+
         conn.execute("""
             INSERT INTO weekly_submissions
                 (season, week, status, source, submitted_at)
@@ -407,6 +412,7 @@ def create_weekly_submission(db_path: str, season: int, week: int,
         for a in assignments:
             model_pts = model_points[a["game_id"]]
             submitted_pts = a["confidence_points"]
+            model_pick = model_picks.get(a["game_id"], a["predicted_winner"])
             conn.execute("""
                 INSERT INTO weekly_submission_picks
                     (submission_id, game_id, model_pick, submitted_pick,
@@ -417,7 +423,7 @@ def create_weekly_submission(db_path: str, season: int, week: int,
             """, (
                 submission_id,
                 a["game_id"],
-                a["predicted_winner"],
+                model_pick,
                 a["predicted_winner"],
                 model_pts,
                 submitted_pts,
@@ -653,10 +659,11 @@ def get_weekly_overall_stats(db_path: str, season: int) -> dict | None:
             sp.is_overridden
         FROM weekly_submission_picks sp
         JOIN games g ON sp.game_id = g.espn_id
+        JOIN weekly_submissions ws ON sp.submission_id = ws.submission_id
         LEFT JOIN predictions p ON sp.game_id = p.game_id
-            AND p.season=? AND p.week=?
-        WHERE sp.submission_id IN (SELECT submission_id FROM weekly_submissions WHERE season=?)
-    """, (season, season, season)).fetchall()
+            AND p.season = ws.season AND p.week = ws.week
+        WHERE ws.season=?
+    """, (season,)).fetchall()
 
     total = len(rows)
     if total == 0:
