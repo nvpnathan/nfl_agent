@@ -130,7 +130,7 @@ def parse_box_score(summary: dict, espn_id: str) -> list[dict]:
         stats = {s["name"]: s.get("displayValue", "0") for s in team_data.get("statistics", [])}
 
         third_made, third_att = _parse_split(stats.get("thirdDownEff", "0-0"))
-        rz_made, rz_att = _parse_split(stats.get("redZoneAtts", "0-0"))
+        rz_made, rz_att = _parse_split(stats.get("redZoneAttempts", "0-0"))
         sacks_taken, _ = _parse_split(stats.get("sacksYardsLost", "0-0"))
 
         def _int(key: str) -> int:
