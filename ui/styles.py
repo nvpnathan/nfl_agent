@@ -23,15 +23,11 @@ STYLES = """
 
 /* ── global ── */
 .stApp { background: var(--bg) !important; }
-header[data-testid="stHeader"],
-.stApp > header,
 [data-testid="stDecoration"],
-[data-testid="stToolbar"],
-[data-testid="stStatusWidget"],
-#MainMenu { display: none !important; visibility: hidden !important; height: 0 !important; }
+[data-testid="stStatusWidget"] { display: none !important; visibility: hidden !important; height: 0 !important; }
 section[data-testid="stMain"] > div { padding-top: 1.25rem; }
 section[data-testid="stMain"] { padding-top: 0 !important; }
-p, div, span, label { font-family: var(--mono) !important; }
+p, div, label { font-family: var(--mono) !important; }
 
 /* ── sidebar ── */
 [data-testid="stSidebar"] {

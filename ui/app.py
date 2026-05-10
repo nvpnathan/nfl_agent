@@ -26,6 +26,7 @@ st.set_page_config(
 )
 
 # ── CSS ───────────────────────────────────────────────────────────────────────
+
 st.markdown(STYLES, unsafe_allow_html=True)
 
 
@@ -41,8 +42,8 @@ with st.sidebar:
     st.divider()
 
     sidebar_season = st.number_input("Season", min_value=2018,
-                                     max_value=_current_season() + 1,
-                                     value=_current_season(), step=1, key="sb_season")
+                                      max_value=_current_season() + 1,
+                                      value=_current_season(), step=1, key="sb_season")
     sidebar_week = st.number_input("Week", min_value=1, max_value=22, value=1, step=1, key="sb_week")
 
     if st.button("↻  Refresh Week Data", type="primary", use_container_width=True, key="sb_refresh"):
@@ -60,7 +61,6 @@ with st.sidebar:
     if st.button("Admin", type="secondary", use_container_width=True, key="sb_admin"):
         st.session_state["admin_mode"] = True
         st.rerun()
-
 
 # ── admin mode check ─────────────────────────────────────────────────────────
 
