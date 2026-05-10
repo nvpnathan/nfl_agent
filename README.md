@@ -4,12 +4,12 @@ An AI-powered assistant for a family NFL confidence pool. Each week it picks the
 
 ## What It Does
 
-- **Predicts** game winners using an XGBoost model trained on 2018–2023 NFL data, with market odds as the primary signal plus adjustments for rest days, injuries, recent form, weather, and strength of schedule
-- **Optimizes** confidence point assignments (1–16 regular season, adjusted for playoffs) by sorting games by win probability — highest probability gets highest points
-- **Flags** close calls: games within 3% win probability of an adjacent pick are highlighted for manual review
-- **Explains** picks via a conversational agent (local Llama 3.3 70B or Claude Sonnet 4.6) that can look up predictions, odds, injuries, and weather in real time
-- **Re-ranks** picks when you challenge them, showing a visible diff of what changed and why
-- **Refreshes** automatically via cron (Thursday/Friday) on a local VM, with a manual refresh button for breaking news
+- **Predicts** weekly NFL winners using a calibrated XGBoost model over market, form, injury, weather, and matchup context features
+- **Assigns confidence points** automatically by sorting games on win probability (highest probability gets highest points)
+- **Flags uncertainty** for adjacent picks within the configured threshold (`model.uncertainty_threshold`, default 3%)
+- **Persists weekly assignments** in SQLite and supports manual point swaps/reverts while preserving a valid permutation
+- **Locks weekly submissions** into a snapshot table (`weekly_submissions` + `weekly_submission_picks`) for auditability
+- **Refreshes live data** with one command (`scripts/refresh_weekly.py`) or via API (`POST /refresh/{season}/{week}`)
 
 ## Architecture
 
@@ -19,28 +19,28 @@ Streamlit dashboard (ui/app.py)
 FastAPI backend (src/api/main.py)
     ├── XGBoost model (src/model/)
     ├── Confidence optimizer (src/optimizer/)
-    ├── Conversational agent (src/agent/)
-    │     ├── Ollama 70B (default) or Claude Sonnet 4.6
-    │     └── 7 tools: schedule, predictions, odds, injuries, weather, assignments, re-rank
+    ├── Feature/data pipeline (src/features/, src/data/)
     └── SQLite database (data/nfl_pool.db)
 ```
 
 ## Seasonal Maintenance
 
-To keep the model accurate throughout the upcoming season, follow this maintenance cycle:
+Current in-repo maintenance commands:
 
-1. **Every Tuesday:** Ingest the previous week's results and box scores to refresh rolling features.
+1. **Weekly refresh:** pull latest schedule/odds/injuries/weather, predict, and persist assignments.
    ```bash
-   uv run python scripts/ingest_results.py --season 2026 --week N
+   uv run python scripts/refresh_weekly.py
    ```
-2. **Every 4 Weeks:** Retrain the model to adapt to new 2026 league trends.
+2. **Periodic model check:** run walk-forward validation and retraining.
    ```bash
-   uv run python scripts/retrain_model.py
+   uv run python scripts/backtest.py
    ```
-3. **To Monitor:** Track model performance metrics and identify regressions via the admin dashboard.
+3. **Deep tuning (optional):** search XGBoost hyperparameters using walk-forward folds.
    ```bash
-   uv run streamlit run ui/admin.py
+   uv run python scripts/tune_hyperparams.py
    ```
+
+For exact model training/evaluation workflows, see `docs/model-training.md`, `docs/model-evaluation.md`, and `docs/model-card.md`.
 
 ## Data Sources
 
@@ -57,7 +57,7 @@ To keep the model accurate throughout the upcoming season, follow this maintenan
 - Python 3.11+
 - [uv](https://docs.astral.sh/uv/) (`curl -LsSf https://astral.sh/uv/install.sh | sh`)
 - [Ollama](https://ollama.com) with `llama3.3:70b` pulled (or a Claude API key for cloud LLM)
-- The Odds API key (free at [the-odds-api.com](https://the-odds-api.com))
+- Optional: The Odds API key (legacy helper module in `src/data/odds.py`)
 
 ### Install
 
@@ -87,27 +87,69 @@ ollama pull llama3.3:70b
 
 ### One-Time Data Ingestion
 
-Load historical game data (2018–2025) into SQLite:
+Populate `data/nfl_pool.db` with completed games, odds, injuries, and team stats before training/backtesting.
 
-```bash
-uv run python scripts/ingest_historical.py
-```
+This repository currently does not include a dedicated one-shot historical backfill script in `scripts/`.
+If you already have a populated DB, place it at `config.yaml -> db.path` (default `data/nfl_pool.db`).
+
+For model details and exact data requirements, see `docs/model-card.md`.
 
 ### Train + Backtest
 
-Train the model on 2018–2023, validate on 2024–2025:
+Run walk-forward training + validation:
 
 ```bash
 uv run python scripts/backtest.py
 ```
 
+Note: backtest uses temporary fold artifacts by default and does not overwrite `data/model.joblib`.
+Use `--write-production-artifact` only if you intentionally want legacy overwrite behavior.
+
+### Train Production Artifact
+
+Train one deployable model artifact (no fold loop):
+
+```bash
+uv run python scripts/train_production.py
+```
+
+Use configured seasons exactly:
+
+```bash
+uv run python scripts/train_production.py --from-config
+```
+
 Expected output:
 ```
-Training on ~1680 games...
-Backtest Results:
-  Avg accuracy:      0.58–0.62
-  Baseline accuracy: 0.56–0.60
-  Avg actual pts/wk: ~95–110
+Fold: train=[2018, 2019, 2020, 2021] → validate=2022
+  Training on <n_games> games...
+  2022: accuracy=<...> brier=<...> exp_pts=<...> actual_pts=<...>
+
+Fold: train=[2018, ..., 2022] → validate=2023
+  Training on <n_games> games...
+  2023: accuracy=<...> brier=<...> exp_pts=<...> actual_pts=<...>
+
+Fold: train=[2018, ..., 2023] → validate=2024
+  Training on <n_games> games...
+  2024: accuracy=<...> brier=<...> exp_pts=<...> actual_pts=<...>
+
+Fold: train=[2018, ..., 2024] → validate=2025
+  Training on <n_games> games...
+  2025: accuracy=<...> brier=<...> exp_pts=<...> actual_pts=<...>
+
+=== Walk-forward summary (all folds) ===
+  Accuracy:        <...>  (baseline: <...>)
+  Brier score:     <...>
+  Expected pts/wk: <...>
+  Actual pts/wk:   <...>
+
+=== Per-fold summary ===
+                 accuracy  brier_score  expected_points  actual_points
+fold_val_season
+2022                <...>       <...>            <...>          <...>
+2023                <...>       <...>            <...>          <...>
+2024                <...>       <...>            <...>          <...>
+2025                <...>       <...>            <...>          <...>
 ```
 
 ## Running the App
@@ -124,31 +166,34 @@ uv run streamlit run ui/app.py
 
 Open `http://localhost:8501` in your browser.
 
-### On the VM (always-on)
+### On a VM (always-on)
+
+Run each service in a process manager (`tmux`, `screen`, `systemd`, etc.) and bind to all interfaces.
 
 ```bash
-uv run bash scripts/start_server.sh
+# Terminal 1
+uv run uvicorn src.api.main:app --host 0.0.0.0 --port 8000
+
+# Terminal 2
+uv run streamlit run ui/app.py --server.address 0.0.0.0 --server.port 8501
 ```
 
-Access from your laptop at `http://<vm-local-ip>:8501`.
+Then access Streamlit at `http://<vm-local-ip>:8501`.
 
 Add cron jobs (`crontab -e`) to auto-refresh Thursday and Friday:
 
 ```cron
-@reboot cd /path/to/nfl_agent && bash scripts/start_server.sh
 0 9 * * 4 cd /path/to/nfl_agent && uv run python scripts/refresh_weekly.py >> logs/cron.log 2>&1
 0 8 * * 5 cd /path/to/nfl_agent && uv run python scripts/refresh_weekly.py >> logs/cron.log 2>&1
 ```
 
 ## Weekly Workflow
 
-1. Cron auto-refreshes Thursday/Friday — dashboard is ready with picks
-2. Open the dashboard, review the pick sheet
-3. Yellow rows = two picks within 3% win probability — consider swapping
-4. Use the chat to challenge any pick ("Why Eagles 16 points?")
-5. Agent fetches live data, explains reasoning
-6. If you convince it, it re-ranks and shows the diff
-7. Submit picks to your pool
+1. Run `scripts/refresh_weekly.py` (or let cron run it) to fetch current week data and generate picks
+2. Open the dashboard and review assignments ranked by confidence points
+3. Check uncertain/close picks and market context (spread + total)
+4. Optionally swap confidence points for a game, or revert a game to model ordering
+5. Lock the week to snapshot current picks for submission tracking
 
 ## Testing
 
@@ -170,25 +215,15 @@ src/
 ui/
 └── app.py        # Streamlit dashboard
 scripts/
-├── ingest_historical.py   # One-time data backfill
-├── backtest.py            # Train + validate model
-├── refresh_weekly.py      # Cron entry point
-└── start_server.sh        # VM startup script
+├── backtest.py            # Walk-forward training + validation
+├── refresh_weekly.py      # Weekly data refresh + prediction generation
+├── train_production.py    # Single production artifact training
+└── tune_hyperparams.py    # Walk-forward hyperparameter search
 docs/superpowers/plans/    # Implementation plan
 ```
 
 ## Model Features
 
-The XGBoost model uses 15 features per game:
+The production model uses 37 features per game (market, rest/form, rolling box-score, injuries, game context, weather, and SOS).
 
-| Feature | Description |
-|---------|-------------|
-| `odds_home_win_prob` | Market-implied probability (vig-removed) |
-| `home_rest_days` / `away_rest_days` | Days since last game |
-| `rest_advantage` | Difference in rest days |
-| `home_qb_out` / `away_qb_out` | Starting QB injury flag |
-| `home_recent_winpct` / `away_recent_winpct` | Win % last 4 games |
-| `home_recent_point_diff` / `away_recent_point_diff` | Avg margin last 4 games |
-| `temperature` / `wind_speed` | Game-day weather (outdoor only) |
-| `home_sos` / `away_sos` | Strength of schedule (opponent quality) |
-| `is_playoff` | Playoff game flag |
+See `docs/model-card.md` for the full canonical feature table, training workflow, evaluation metrics, and limitations.

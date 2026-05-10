@@ -1,5 +1,9 @@
 # NFL Confidence Pool AI Agent — Implementation Plan
 
+> **Status:** Historical implementation plan snapshot from 2026-05-07.
+> It is preserved for planning history and may reference files, APIs, or architecture details that are no longer current.
+> Use `README.md`, `docs/model-card.md`, `docs/model-training.md`, and `docs/model-evaluation.md` as the current source of truth.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build a local AI agent that predicts NFL game winners with calibrated probabilities and optimally assigns confidence points (1-N) for a season-long family confidence pool, surfaced through a Streamlit dashboard with a conversational agent for challenging picks.

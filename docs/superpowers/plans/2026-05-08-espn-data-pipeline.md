@@ -1,5 +1,9 @@
 # ESPN Data Pipeline Implementation Plan
 
+> **Status:** Historical implementation plan snapshot from 2026-05-08.
+> It is preserved for planning history and may reference steps, scripts, or assumptions that differ from the current repository state.
+> Use `README.md` and the model docs in `docs/` as the current source of truth.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace `nfl_data_py` and Sleeper API with the ESPN unofficial API as the single source of truth for all game data, adding box score stats (turnovers, yards, third-down rate) and structured injury/depth chart data to improve model features.

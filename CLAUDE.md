@@ -17,11 +17,14 @@ A local AI agent that predicts NFL game winners and assigns confidence points (1
 # Install dependencies
 uv sync
 
-# One-time: load 2018–2025 historical data into SQLite
-uv run python scripts/ingest_historical.py
+# Weekly refresh: pull games/odds/injuries/weather and generate picks
+uv run python scripts/refresh_weekly.py
 
-# Train model + run backtest (2024–2025 validation)
+# Train model + run walk-forward backtest
 uv run python scripts/backtest.py
+
+# Optional: walk-forward hyperparameter search
+uv run python scripts/tune_hyperparams.py
 
 # Start API server (port 8000)
 uv run uvicorn src.api.main:app --reload --port 8000

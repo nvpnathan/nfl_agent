@@ -1,5 +1,9 @@
 # ESPN Odds Integration Implementation Plan
 
+> **Status:** Historical implementation plan snapshot from 2026-05-09.
+> It is preserved for planning history and may reference migration details that are already completed or superseded.
+> Use `README.md` and `docs/model-card.md` for current behavior.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the fake `odds_home_win_prob=0.55` training constant with real Bet365 pre-match spread and totals from ESPN's core API, switch calibration from isotonic to Platt (sigmoid), and add walk-forward validation to the backtest.

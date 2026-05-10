@@ -1,14 +1,16 @@
 # Model Evaluation Guide
 
+For full context on model architecture, training data, and feature definitions, see `docs/model-card.md`.
+
 ## Running the Backtest
 
-The backtest trains on `train_seasons`, then evaluates week-by-week on `val_seasons` using completed game outcomes. Seasons are configured in `config.yaml`.
+The backtest retrains per walk-forward fold and evaluates week-by-week on holdout seasons using completed game outcomes.
 
 ```bash
 uv run python scripts/backtest.py
 ```
 
-This trains the model and immediately backtests it. To evaluate an already-trained model against different seasons, use the Python API directly (see below).
+Current folds are defined in `scripts/backtest.py` and use expanding training windows.
 
 ## Metrics
 
@@ -17,16 +19,16 @@ Each week produces five metrics, averaged across all weeks in the backtest summa
 | Metric | What it measures |
 |---|---|
 | `accuracy` | Fraction of games where the model's pick (home if prob ≥ 0.5, away otherwise) was correct |
-| `baseline_accuracy` | Fraction of games the home team won — the always-pick-home baseline |
+| `baseline_accuracy` | Fraction of games the home team won in that evaluation set |
 | `actual_points` | Points earned that week (confidence points for correct picks, 0 for wrong picks) |
 | `expected_points` | Probabilistic points: `Σ win_probability × confidence_points` across all games |
 | `brier_score` | Mean squared error of home-win probabilities vs. outcomes (lower is better; 0.25 = coin flip) |
 
 **Interpreting the numbers:**
 
-- `accuracy > baseline_accuracy` means the model adds value over always picking the home team
+- `accuracy > baseline_accuracy` means the model adds value over a home-team baseline
 - `actual_points / expected_points` close to 1.0 means the model's confidence calibration is realistic
-- Brier score < 0.23 is roughly what Vegas lines achieve; lower is better
+- Lower Brier is better probability quality; 0.25 is coin-flip level
 
 ## Python API
 
@@ -68,13 +70,11 @@ metrics = compute_week_metrics(predictions)
 ## What to Look For
 
 **The model is working if:**
-- `accuracy` is consistently above `baseline_accuracy` (home-team win rate ~57%)
-- Brier score is below ~0.25 (coin-flip level)
-- `actual_points / expected_points` ratio stays near 1.0 over multiple weeks
+- `accuracy` is consistently above `baseline_accuracy`
+- `brier_score` is below ~0.25 (coin-flip level)
+- `actual_points / expected_points` stays near 1.0 over multiple weeks
 
 **The model needs attention if:**
-- `accuracy ≈ baseline_accuracy` — the ML features aren't adding signal over the raw home-field baseline
-- Brier score > 0.25 — probabilities are worse than random
-- `actual_points` systematically below `expected_points` — model is overconfident
-
-**Known limitation:** Historical training data uses `odds_home_win_prob=0.55` as a default for games without live odds data (most pre-2023 seasons). This weakens the odds feature signal in training. Backtest accuracy improves meaningfully once live odds data is available for the current season.
+- `accuracy ≈ baseline_accuracy` (limited lift over baseline)
+- `brier_score > 0.25` (probabilities worse than random)
+- `actual_points` systematically below `expected_points` (likely overconfidence)
