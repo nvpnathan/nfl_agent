@@ -30,7 +30,7 @@ FOLDS_RECENT = [
 ]
 
 
-def _run_folds(folds, db_path, model_path, strategy_label: str) -> pd.DataFrame:
+def _run_folds(folds, db_path, model_path, strategy_label: str) -> tuple[pd.DataFrame, list[dict]]:
     all_results = []
     for train_seasons, val_season in folds:
         print(f"\nFold [{strategy_label}]: train={train_seasons} → validate={val_season}")
@@ -48,7 +48,7 @@ def _run_folds(folds, db_path, model_path, strategy_label: str) -> pd.DataFrame:
               f"actual_pts={fold_df['actual_points'].mean():.1f}")
 
     df = pd.DataFrame(all_results)
-    return df
+    return df, all_results
 
 
 def main(
@@ -74,8 +74,9 @@ def main(
         tmp_dir = Path(tmpdir_obj.name)
         print(f"Using temp artifact directory: {tmp_dir}")
 
+    all_results: list[dict] = []
     try:
-        df = _run_folds(folds, db_path, str(tmp_dir / "model_fold_{val_season}.joblib"),
+        df, all_results = _run_folds(folds, db_path, str(tmp_dir / "model_fold_{val_season}.joblib"),
                         strategy_label=strategy)
 
         print(f"\n=== Walk-forward summary [{strategy}] ===")
@@ -93,6 +94,11 @@ def main(
             actual_points=("actual_points", "mean"),
         )
         print(fold_summary.to_string())
+
+        if args.persist:
+            from src.model.evaluate import persist_week_metrics
+            count = persist_week_metrics(db_path, all_results)
+            print(f"Persisted {count} week metrics to model_metrics table.")
     finally:
         if tmpdir_obj is not None:
             tmpdir_obj.cleanup()
@@ -104,9 +110,9 @@ def main_compare(db_path: str) -> None:
     tmp_dir = Path(tmpdir_obj.name)
 
     try:
-        df_all = _run_folds(FOLDS_ALL, db_path, str(tmp_dir / "model_{val_season}.joblib"),
+        df_all, _ = _run_folds(FOLDS_ALL, db_path, str(tmp_dir / "model_{val_season}.joblib"),
                             strategy_label="all")
-        df_recent = _run_folds(FOLDS_RECENT, db_path, str(tmp_dir / "model_{val_season}.joblib"),
+        df_recent, _ = _run_folds(FOLDS_RECENT, db_path, str(tmp_dir / "model_{val_season}.joblib"),
                                strategy_label="recent")
 
         def summary_stats(df):
@@ -158,6 +164,11 @@ if __name__ == "__main__":
         "--compare",
         action="store_true",
         help="Run both strategies side by side and print a comparison table.",
+    )
+    parser.add_argument(
+        "--persist",
+        action="store_true",
+        help="Persist backtest metrics to the model_metrics table.",
     )
     args = parser.parse_args()
 

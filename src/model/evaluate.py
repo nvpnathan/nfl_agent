@@ -74,3 +74,23 @@ def run_season_backtest(
             metrics["week"] = week
             all_metrics.append(metrics)
     return all_metrics
+
+
+def persist_week_metrics(db_path: str, metrics_list: list[dict]) -> int:
+    """Insert each week's metrics into model_metrics table. Returns count inserted."""
+    from src.db.queries import _conn as db_conn
+    from src.model.train import MODEL_VERSION
+
+    with db_conn(db_path) as conn:
+        for m in metrics_list:
+            conn.execute("""
+                INSERT INTO model_metrics
+                    (season, week, model_version, accuracy, brier_score,
+                     expected_points, actual_points, baseline_accuracy)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (m["season"], m["week"], MODEL_VERSION,
+                  m.get("accuracy"), m.get("brier_score"),
+                  m.get("expected_points"), m.get("actual_points"),
+                  m.get("baseline_accuracy")))
+
+    return len(metrics_list)
