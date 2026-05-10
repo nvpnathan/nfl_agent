@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 import argparse
+import json
 import sqlite3
 import yaml
 
+from src.db.queries import insert_model_training_run
 from src.features.builder import build_training_dataset
 from src.model.train import train_model
 
@@ -78,6 +80,14 @@ def main() -> None:
     print(f"Rows by season: {by_season}")
 
     metrics = train_model(df, model_path)
+    run_id = insert_model_training_run(db_path, {
+        "model_version": metrics["model_version"],
+        "cv_accuracy_mean": metrics["cv_accuracy_mean"],
+        "cv_accuracy_std": metrics["cv_accuracy_std"],
+        "n_samples": metrics["n_samples"],
+        "seasons_used": json.dumps(seasons),
+    })
+    print(f"Training run recorded: id={run_id}")
     print("Training complete:")
     print(metrics)
 
