@@ -20,6 +20,7 @@ def test_schema_creates_all_tables():
             "predictions", "weekly_assignments", "conversations",
             "rerankings", "model_metrics", "game_odds",
             "weekly_submissions", "weekly_submission_picks",
+            "model_training_runs",
         }
         assert expected.issubset(tables)
         assert "family_picks" not in tables

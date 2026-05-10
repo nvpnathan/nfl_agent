@@ -174,6 +174,16 @@ def create_schema(db_path: str) -> None:
             created_at TEXT DEFAULT (datetime('now'))
         );
 
+        CREATE TABLE IF NOT EXISTS model_training_runs (
+            model_run_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            model_version TEXT NOT NULL,
+            cv_accuracy_mean REAL NOT NULL,
+            cv_accuracy_std REAL NOT NULL,
+            n_samples INTEGER NOT NULL,
+            seasons_used TEXT NOT NULL,
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+
         DROP TABLE IF EXISTS family_picks;
         """)
         conn.commit()
