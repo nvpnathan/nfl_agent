@@ -25,13 +25,29 @@ FastAPI backend (src/api/main.py)
     └── SQLite database (data/nfl_pool.db)
 ```
 
+## Seasonal Maintenance
+
+To keep the model accurate throughout the upcoming season, follow this maintenance cycle:
+
+1. **Every Tuesday:** Ingest the previous week's results and box scores to refresh rolling features.
+   ```bash
+   uv run python scripts/ingest_results.py --season 2026 --week N
+   ```
+2. **Every 4 Weeks:** Retrain the model to adapt to new 2026 league trends.
+   ```bash
+   uv run python scripts/retrain_model.py
+   ```
+3. **To Monitor:** Track model performance metrics and identify regressions via the admin dashboard.
+   ```bash
+   uv run streamlit run ui/admin.py
+   ```
+
 ## Data Sources
 
 | Source | Purpose | Cost |
 |--------|---------|------|
-| [nfl_data_py](https://github.com/nflverse/nfl_data_py) | Historical game results, schedules, rosters (2018–present) | Free |
-| [The Odds API](https://the-odds-api.com) | Market moneylines → implied win probabilities | Free tier (500 req/mo) |
-| [Sleeper API](https://docs.sleeper.com) | Weekly injury reports | Free |
+| [ESPN API](https://site.api.espn.com) | **Primary Source**: Historical results, live scores, box scores, depth charts, and injuries | Free |
+| [ESPN Core API](https://sports.core.api.espn.com) | Pre-match betting odds (Bet365 spread/totals) | Free |
 | [Open-Meteo](https://open-meteo.com) | Game-day weather for outdoor stadiums | Free |
 
 ## Setup
