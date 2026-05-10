@@ -56,6 +56,19 @@ with st.sidebar:
         f"{dot} API connected" if api_ok else f"{dot} offline (direct mode)"
     )
 
+    st.divider()
+    if st.button("Admin", type="secondary", use_container_width=True, key="sb_admin"):
+        st.session_state["admin_mode"] = True
+        st.rerun()
+
+
+# ── admin mode check ─────────────────────────────────────────────────────────
+
+if st.session_state.get("admin_mode", False):
+    from ui.admin import render_admin
+    render_admin()
+    st.stop()
+
 
 # ── data & header ────────────────────────────────────────────────────────────
 
