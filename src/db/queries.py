@@ -488,3 +488,213 @@ def get_conversation_history(db_path: str, session_id: str) -> list[dict]:
             (session_id,)
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+def insert_model_training_run(db_path: str, run: dict) -> int:
+    """Insert a training run record. Returns the new model_run_id."""
+    with _conn(db_path) as conn:
+        cursor = conn.execute("""
+            INSERT INTO model_training_runs
+                (model_version, cv_accuracy_mean, cv_accuracy_std, n_samples, seasons_used)
+            VALUES (?, ?, ?, ?, ?)
+        """, (run["model_version"], run["cv_accuracy_mean"], run["cv_accuracy_std"],
+              run["n_samples"], run["seasons_used"]))
+        return cursor.lastrowid
+
+
+def get_model_training_runs(db_path: str) -> list[dict]:
+    """Get all training runs, ordered by created_at descending."""
+    with _conn(db_path) as conn:
+        rows = conn.execute("""
+            SELECT * FROM model_training_runs ORDER BY created_at DESC
+        """).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_seasons_with_submissions(db_path: str) -> list[int]:
+    """Get all seasons that have at least one weekly submission."""
+    with _conn(db_path) as conn:
+        rows = conn.execute("""
+            SELECT DISTINCT season FROM weekly_submissions ORDER BY season DESC
+        """).fetchall()
+    return [int(r[0]) for r in rows]
+
+
+def get_weekly_analytics(db_path: str, season: int, week: int) -> dict | None:
+    """Get analytics data for a specific season/week.
+
+    Returns dict with keys: 'picks', 'overrides'.
+    Each pick has: game_id, home_team, away_team, picked_team, model_picked_team,
+    is_overridden, home_win, model_confidence, submitted_points, pick_correct (0/1),
+    model_correct (0/1). Returns None if no submission exists.
+    """
+    with _conn(db_path) as conn:
+
+        sub = conn.execute("""
+            SELECT submission_id FROM weekly_submissions WHERE season=? AND week=?
+        """, (season, week)).fetchone()
+        if sub is None:
+            return None
+
+        submission_id = sub["submission_id"]
+
+        picks_rows = conn.execute("""
+            SELECT
+                sp.game_id,
+                g.home_team,
+                g.away_team,
+                CASE WHEN sp.submitted_pick = g.home_team THEN 'home' ELSE 'away' END AS pick_side,
+                sp.submitted_pick AS picked_team,
+                p.predicted_winner AS model_picked_team,
+                sp.is_overridden,
+                g.home_win,
+                p.home_win_prob AS model_confidence,
+                sp.submitted_points,
+                CASE WHEN sp.submitted_pick = g.home_team AND g.home_win = 1 THEN 1
+                     WHEN sp.submitted_pick = g.away_team AND g.home_win = 0 THEN 1
+                     ELSE 0 END AS pick_correct,
+                CASE WHEN p.predicted_winner = g.home_team AND g.home_win = 1 THEN 1
+                     WHEN p.predicted_winner = g.away_team AND g.home_win = 0 THEN 1
+                     ELSE 0 END AS model_correct
+            FROM weekly_submission_picks sp
+            JOIN games g ON sp.game_id = g.espn_id
+            LEFT JOIN predictions p ON sp.game_id = p.game_id
+                AND p.season=? AND p.week=?
+            WHERE sp.submission_id=?
+            ORDER BY sp.submitted_points DESC, g.game_date ASC
+        """, (season, week, submission_id)).fetchall()
+
+    picks = [dict(r) for r in picks_rows]
+    if not picks:
+        return None
+
+    # Add source tag
+    for p in picks:
+        p["source"] = "override" if p["is_overridden"] else "model"
+
+    overrides = [p for p in picks if p["is_overridden"]]
+
+    return {"picks": picks, "overrides": overrides}
+
+
+def get_season_override_summary(db_path: str, season: int) -> list[dict]:
+    """Get override summary per week for a season.
+
+    Returns list of dicts with: 'week', 'overrides_made', 'saved', 'hurt'.
+    """
+    with _conn(db_path) as conn:
+        weeks = [int(r[0]) for r in conn.execute("""
+            SELECT DISTINCT week FROM weekly_submissions WHERE season=? ORDER BY week
+        """, (season,)).fetchall()]
+
+    results = []
+    for week in weeks:
+        with _conn(db_path) as conn:
+            sub = conn.execute("""
+                SELECT submission_id FROM weekly_submissions WHERE season=? AND week=?
+            """, (season, week)).fetchone()
+        if sub is None:
+            continue
+
+        rows = conn.execute("""
+            SELECT
+                CASE WHEN sp.submitted_pick = g.home_team AND g.home_win = 1 THEN 1
+                     WHEN sp.submitted_pick = g.away_team AND g.home_win = 0 THEN 1
+                     ELSE 0 END AS user_correct,
+                CASE WHEN p.predicted_winner = g.home_team AND g.home_win = 1 THEN 1
+                     WHEN p.predicted_winner = g.away_team AND g.home_win = 0 THEN 1
+                     ELSE 0 END AS model_correct
+            FROM weekly_submission_picks sp
+            JOIN games g ON sp.game_id = g.espn_id
+            LEFT JOIN predictions p ON sp.game_id = p.game_id
+                AND p.season=? AND p.week=?
+            WHERE sp.submission_id=? AND sp.is_overridden=1
+        """, (season, week, sub["submission_id"])).fetchall()
+
+        total = len(rows)
+        if total == 0:
+            results.append({"week": week, "overrides_made": 0, "saved": 0, "hurt": 0})
+            continue
+
+        saved = sum(1 for r in rows if int(r["user_correct"]) == 1 and int(r["model_correct"]) == 0)
+        hurt = sum(1 for r in rows if int(r["user_correct"]) == 0 and int(r["model_correct"]) == 1)
+
+        results.append({
+            "week": week,
+            "overrides_made": total,
+            "saved": saved,
+            "hurt": hurt,
+        })
+
+    return results
+
+
+def get_weekly_overall_stats(db_path: str, season: int) -> dict | None:
+    """Get overall stats for a season across all weeks.
+
+    Returns dict with keys: 'weeks_covered', 'actual_pct', 'model_pct',
+    'overrides_total', 'saved', 'hurt'. Returns None if no data.
+    """
+    with _conn(db_path) as conn:
+        weeks = [int(r[0]) for r in conn.execute("""
+            SELECT DISTINCT week FROM weekly_submissions WHERE season=? ORDER BY week
+        """, (season,)).fetchall()]
+
+    if not weeks:
+        return None
+
+    rows = conn.execute("""
+        SELECT
+            sp.submitted_pick,
+            g.home_team,
+            g.away_team,
+            g.home_win,
+            p.predicted_winner AS model_picked,
+            sp.is_overridden
+        FROM weekly_submission_picks sp
+        JOIN games g ON sp.game_id = g.espn_id
+        LEFT JOIN predictions p ON sp.game_id = p.game_id
+            AND p.season=? AND p.week=?
+        WHERE sp.submission_id IN (SELECT submission_id FROM weekly_submissions WHERE season=?)
+    """, (season, season, season)).fetchall()
+
+    total = len(rows)
+    if total == 0:
+        return None
+
+    actual_correct = sum(
+        1 for r in rows
+        if (r["submitted_pick"] == r["home_team"] and r["home_win"] == 1)
+        or (r["submitted_pick"] == r["away_team"] and r["home_win"] == 0)
+    )
+    model_correct = sum(
+        1 for r in rows
+        if (r["model_picked"] == r["home_team"] and r["home_win"] == 1)
+        or (r["model_picked"] == r["away_team"] and r["home_win"] == 0)
+    )
+
+    override_rows = [r for r in rows if int(r["is_overridden"]) == 1]
+    om = len(override_rows)
+    saved = sum(
+        1 for r in override_rows
+        if ((r["submitted_pick"] == r["home_team"] and r["home_win"] == 1)
+            or (r["submitted_pick"] == r["away_team"] and r["home_win"] == 0))
+        and not ((r["model_picked"] == r["home_team"] and r["home_win"] == 1)
+                 or (r["model_picked"] == r["away_team"] and r["home_win"] == 0))
+    )
+    hurt = sum(
+        1 for r in override_rows
+        if not ((r["submitted_pick"] == r["home_team"] and r["home_win"] == 1)
+                or (r["submitted_pick"] == r["away_team"] and r["home_win"] == 0))
+        and ((r["model_picked"] == r["home_team"] and r["home_win"] == 1)
+             or (r["model_picked"] == r["away_team"] and r["home_win"] == 0))
+    )
+
+    return {
+        "weeks_covered": len(weeks),
+        "actual_pct": round(actual_correct / total, 3),
+        "model_pct": round(model_correct / total, 3),
+        "overrides_total": om,
+        "saved": saved,
+        "hurt": hurt,
+    }
