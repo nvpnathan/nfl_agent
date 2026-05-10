@@ -1,0 +1,22 @@
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - NFL_CONFIG_PATH=/app/config.yaml
+    command: uv run uvicorn src.api.main:app --host 0.0.0.0 --port 8000
+    restart: unless-stopped
+
+  ui:
+    build: .
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - NFL_CONFIG_PATH=/app/config.yaml
+    command: uv run streamlit run ui/app.py --server.port 8501 --server.address 0.0.0.0
+    restart: unless-stopped

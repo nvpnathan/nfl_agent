@@ -11,3 +11,4 @@ build/
 data/nfl_pool.db
 data/model.joblib
 .env
+.DS_Store
